@@ -49,3 +49,22 @@ CREATE TABLE IF NOT EXISTS alerts (
 
 CREATE INDEX IF NOT EXISTS idx_alerts_status ON alerts(status);
 CREATE INDEX IF NOT EXISTS idx_alerts_severity ON alerts(severity);
+
+-- 4. Users and Roles table (for authentication & authorization)
+CREATE TABLE IF NOT EXISTS users (
+    id SERIAL PRIMARY KEY,
+    username VARCHAR(50) UNIQUE NOT NULL,
+    email VARCHAR(100) UNIQUE NOT NULL,
+    password_hash VARCHAR(255) NOT NULL,
+    role VARCHAR(20) DEFAULT 'officer' NOT NULL, -- 'admin', 'officer', 'analyst'
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);
+
+-- Link alerts to users table safely
+ALTER TABLE alerts 
+ADD CONSTRAINT fk_alerts_assigned_officer 
+FOREIGN KEY (assigned_officer_id) 
+REFERENCES users(id) 
+ON DELETE SET NULL;
