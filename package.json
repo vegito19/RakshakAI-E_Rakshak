@@ -1,0 +1,21 @@
+{
+  "name": "rakshak-ai",
+  "version": "1.0.0",
+  "description": "Multilingual AI-powered OSINT platform for law enforcement agencies",
+  "main": "api/src/server.ts",
+  "scripts": {
+    "crawler": "ts-node crawler/crawler.ts",
+    "crawler:test": "ts-node crawler/crawler.ts --test",
+    "build": "tsc"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "ioredis": "^5.4.1",
+    "playwright": "^1.45.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.9",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.5.2"
+  }
+}

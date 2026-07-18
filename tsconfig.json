@@ -1,0 +1,27 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "CommonJS",
+    "moduleResolution": "node",
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "strict": true,
+    "skipLibCheck": true,
+    "outDir": "./dist",
+    "rootDir": "./",
+    "baseUrl": "./",
+    "paths": {
+      "*": ["node_modules/*"]
+    }
+  },
+  "include": [
+    "crawler/**/*",
+    "shared-types/**/*",
+    "utils/**/*",
+    "database/**/*",
+    "api/**/*"
+  ],
+  "exclude": [
+    "node_modules"
+  ]
+}
