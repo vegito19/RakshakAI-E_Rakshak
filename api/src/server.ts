@@ -95,7 +95,7 @@ fastify.post(
         username: dbUser.username,
         email: dbUser.email,
         role: dbUser.role,
-        createdAt: dbUser.created_at,
+        createdAt: new Date(dbUser.created_at).toISOString(),
       };
 
       // 3. Generate token
@@ -201,7 +201,7 @@ fastify.post(
         username: dbUser.username,
         email: dbUser.email,
         role: dbUser.role,
-        createdAt: dbUser.created_at,
+        createdAt: new Date(dbUser.created_at).toISOString(),
       };
 
       // 3. Generate Token
@@ -269,8 +269,9 @@ async function startServer(): Promise<void> {
     // 2. Configure CORS
     await fastify.register(cors, {
       origin: true, // Configured to match origin request in development
+      credentials: true,
       methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-      allowedHeaders: ['Content-Type', 'Authorization'],
+      allowedHeaders: ['Content-Type', 'Authorization', 'Origin', 'Accept', 'X-Requested-With'],
     });
 
     // 3. Start Server
