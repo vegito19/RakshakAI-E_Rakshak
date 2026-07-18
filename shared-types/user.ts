@@ -5,7 +5,7 @@ export interface User {
   username: string;
   email: string;
   role: UserRole;
-  createdAt: string; // ISO 8601 string representation of date for JSON serialization compatibility
+  createdAt: string; // ISO 8601 UTC timestamp string representation of date for JSON serialization compatibility
 }
 
 export interface UserJWTPayload {
