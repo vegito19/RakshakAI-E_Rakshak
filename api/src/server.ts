@@ -458,7 +458,7 @@ fastify.post('/api/crawler/extract', async (request: FastifyRequest, reply: Fast
  * Serve static single-page control panel dashboard directly at root.
  */
 fastify.get('/', async (request: FastifyRequest, reply: FastifyReply) => {
-  const PORT = process.env.PORT || '3000';
+  const PORT = process.env.PORT || '5000';
   const html = `
     <!DOCTYPE html>
     <html lang="en">
@@ -873,7 +873,7 @@ async function startServer(): Promise<void> {
     });
 
     // 3. Start Server
-    const port = parseInt(process.env.PORT || '3000', 10);
+    const port = parseInt(process.env.PORT || '5000', 10);
     const host = process.env.HOST || '0.0.0.0';
 
     await fastify.listen({ port, host });
