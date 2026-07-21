@@ -1,0 +1,97 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Custom map styling to match the dark operational theme */
+.leaflet-container {
+  background-color: #0b0f19 !important;
+  font-family: 'Outfit', sans-serif !important;
+}
+
+.leaflet-popup-content-wrapper, .leaflet-popup-tip {
+  background: rgba(15, 23, 42, 0.9) !important;
+  backdrop-filter: blur(8px);
+  color: #f1f5f9 !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.3) !important;
+  border-radius: 12px !important;
+}
+
+.leaflet-popup-content {
+  margin: 12px 16px !important;
+  line-height: 1.4 !important;
+}
+
+.leaflet-popup-close-button {
+  color: #94a3b8 !important;
+  padding: 6px !important;
+}
+
+/* Custom prints */
+@media print {
+  body {
+    background: white !important;
+    color: black !important;
+  }
+  body * {
+    visibility: hidden !important;
+  }
+  #printModal, #printModal > div, #printModalContent, #printModalContent * {
+    visibility: visible !important;
+  }
+  #printModal {
+    position: absolute !important;
+    left: 0 !important;
+    top: 0 !important;
+    width: 100% !important;
+    height: auto !important;
+    background: white !important;
+    opacity: 1 !important;
+    display: block !important;
+    border: none !important;
+    box-shadow: none !important;
+  }
+  #printModalContent {
+    position: absolute !important;
+    left: 0 !important;
+    top: 0 !important;
+    width: 100% !important;
+    background: white !important;
+    color: black !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    border: none !important;
+    box-shadow: none !important;
+  }
+  /* Clean white background and black text on all inner elements */
+  #printModalContent * {
+    background: transparent !important;
+    color: black !important;
+    border-color: #cbd5e1 !important;
+    box-shadow: none !important;
+    text-shadow: none !important;
+  }
+  #printModalContent h2, #printModalContent h4, #printModalContent strong {
+    color: #0f172a !important;
+    font-weight: bold !important;
+  }
+  #printModalContent p, #printModalContent span, #printModalContent div {
+    color: #1e293b !important;
+  }
+  #printModalContent .text-cyan-400, #printModalContent .text-indigo-400, 
+  #printModalContent .text-amber-400, #printModalContent .text-red-400 {
+    color: #000000 !important;
+    font-weight: bold !important;
+  }
+  #printModalContent .bg-slate-950\/80, #printModalContent .bg-slate-950, 
+  #printModalContent .bg-slate-900\/50, #printModalContent .bg-slate-955\/50 {
+    background: #f8fafc !important;
+    border: 1px solid #cbd5e1 !important;
+    border-radius: 8px !important;
+  }
+  .no-print {
+    display: none !important;
+    height: 0 !important;
+    width: 0 !important;
+  }
+}

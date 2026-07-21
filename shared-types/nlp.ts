@@ -7,7 +7,7 @@ export interface NamedEntities {
 
 export type SentimentLabel = 'positive' | 'neutral' | 'negative';
 export type ThreatLabel = 'critical' | 'warning' | 'info' | 'none';
-export type ThreatCategory = 'violence' | 'hate_speech' | 'riot' | 'none';
+export type ThreatCategory = 'violence' | 'hate_speech' | 'riot' | 'road_safety' | 'disaster' | 'cyber_crime' | 'none';
 
 export interface ProcessedPost {
   id: number;
