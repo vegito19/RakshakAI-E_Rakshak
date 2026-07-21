@@ -1,7 +1,14 @@
-import express from 'express';
-import cors from 'cors';
-import * as path from 'path';
+import Fastify, { FastifyInstance, FastifyReply, FastifyRequest, FastifyError } from 'fastify';
+import cors from '@fastify/cors';
+import bcrypt from 'bcrypt';
 import * as dotenv from 'dotenv';
+import { logger } from '../../utils/logger';
+import { pool, initializeDatabase } from '../../database/connection';
+import { registerSchema, loginSchema } from '../../validation/auth';
+import { signToken } from '../../auth/jwt';
+import { authenticate } from '../../auth/middleware';
+import { ApiResponse } from '../../shared-types/api';
+import { User, UserJWTPayload } from '../../shared-types/user';
 
 // Import local scrapers
 import { redditScraper } from '../../crawler/sources/reddit';
@@ -11,15 +18,64 @@ import { twitterScraper } from '../../crawler/sources/twitterLocal';
 import { youtubeScraper } from '../../crawler/sources/youtubeLocal';
 import { facebookScraper } from '../../crawler/sources/facebookLocal';
 import { RawCrawledItem } from '../../shared-types/crawler';
-import { logger } from '../../utils/logger';
 
 dotenv.config();
 
-const app = express();
-const PORT = process.env.PORT || 5000;
+interface UserRegistrationDto {
+  username?: string;
+  email?: string;
+  password?: string;
+  role?: string;
+}
 
-app.use(cors());
-app.use(express.json());
+interface UserLoginDto {
+  username?: string;
+  password?: string;
+}
+
+interface CrawlerExtractDto {
+  platform?: string;
+  mode?: string;
+  target?: string;
+  limit?: string | number;
+  depth?: string | number;
+  startDate?: string;
+  endDate?: string;
+  extractComments?: boolean;
+}
+
+const fastify: FastifyInstance = Fastify({
+  logger: false, // Disabling fastify default logger to use project's custom logger
+});
+
+// Setup global error handler
+fastify.setErrorHandler((error: unknown, request: FastifyRequest, reply: FastifyReply) => {
+  if (error instanceof Error) {
+    const err = error as FastifyError;
+    if (err.validation) {
+      logger.warn('Validation error encountered on request.', 'FastifyServer', {
+        validation: err.validation,
+        url: request.url,
+      });
+      const response: ApiResponse = {
+        success: false,
+        error: `Validation Failed: ${err.message}`,
+      };
+      reply.status(400).send(response);
+      return;
+    }
+
+    logger.error('Unhandled internal server error.', err, 'FastifyServer');
+  } else {
+    logger.error('Unhandled unknown error.', new Error(String(error)), 'FastifyServer');
+  }
+
+  const response: ApiResponse = {
+    success: false,
+    error: 'Internal Server Error.',
+  };
+  reply.status(500).send(response);
+});
 
 // Date-filtering utility
 function filterByDateRange(items: RawCrawledItem[], startDateStr?: string, endDateStr?: string): RawCrawledItem[] {
@@ -110,8 +166,214 @@ ${contentToSummarize}`;
   return fallbackSummary;
 }
 
-// On-demand targeted crawler endpoint
-app.post('/api/crawler/extract', async (req, res) => {
+/**
+ * Endpoint for registering a new user/officer.
+ */
+fastify.post(
+  '/auth/register',
+  { schema: registerSchema },
+  async (
+    request: FastifyRequest,
+    reply: FastifyReply
+  ): Promise<void> => {
+    const { username, email, password, role } = request.body as UserRegistrationDto;
+    const finalRole = role || 'officer';
+
+    try {
+      if (!username || !email || !password) {
+        reply.status(400).send({
+          success: false,
+          error: 'Username, email, and password are required.'
+        });
+        return;
+      }
+
+      // 1. Hash the password securely
+      const saltRounds = 10;
+      const hashedPassword = await bcrypt.hash(password, saltRounds);
+
+      // 2. Insert the user record into PostgreSQL
+      const query = `
+        INSERT INTO users (username, email, password_hash, role)
+        VALUES ($1, $2, $3, $4)
+        RETURNING id, username, email, role, created_at;
+      `;
+
+      const result = await pool.query(query, [username, email, hashedPassword, finalRole]);
+      const dbUser = result.rows[0];
+
+      const user: User = {
+        id: dbUser.id,
+        username: dbUser.username,
+        email: dbUser.email,
+        role: dbUser.role,
+        createdAt: new Date(dbUser.created_at).toISOString(),
+      };
+
+      // 3. Generate token
+      const jwtPayload: UserJWTPayload = {
+        id: user.id,
+        username: user.username,
+        role: user.role,
+      };
+      const token = signToken(jwtPayload);
+
+      logger.info(`Successfully registered user: ${username} with role: ${finalRole}`, 'AuthHandler');
+
+      const response: ApiResponse<{ user: User; token: string }> = {
+        success: true,
+        message: 'Registration successful.',
+        data: { user, token },
+      };
+
+      reply.status(201).send(response);
+    } catch (error: unknown) {
+      if (error instanceof Error) {
+        const err = error as any;
+        // Catch unique violation error code (23505) in PostgreSQL
+        if (err.code === '23505') {
+          logger.warn(`Registration conflict. Username or Email already exists: ${username} / ${email}`, 'AuthHandler');
+          const response: ApiResponse = {
+            success: false,
+            error: 'Username or Email is already registered.',
+          };
+          reply.status(409).send(response);
+          return;
+        }
+
+        logger.error('Failed to register new user.', err, 'AuthHandler');
+      } else {
+        logger.error('Failed to register new user due to an unknown error.', new Error(String(error)), 'AuthHandler');
+      }
+
+      const response: ApiResponse = {
+        success: false,
+        error: 'An unexpected database error occurred during registration.',
+      };
+      reply.status(500).send(response);
+    }
+  }
+);
+
+/**
+ * Endpoint for user authentication (Login).
+ */
+fastify.post(
+  '/auth/login',
+  { schema: loginSchema },
+  async (
+    request: FastifyRequest,
+    reply: FastifyReply
+  ): Promise<void> => {
+    const { username, password } = request.body as UserLoginDto;
+
+    try {
+      if (!username || !password) {
+        reply.status(400).send({
+          success: false,
+          error: 'Username and password are required.'
+        });
+        return;
+      }
+
+      // 1. Fetch user by username
+      const query = `
+        SELECT id, username, email, password_hash, role, created_at 
+        FROM users 
+        WHERE username = $1;
+      `;
+      const result = await pool.query(query, [username]);
+
+      if (result.rowCount === 0) {
+        logger.warn(`Failed login attempt: User not found (${username})`, 'AuthHandler');
+        const response: ApiResponse = {
+          success: false,
+          error: 'Invalid username or password.',
+        };
+        reply.status(401).send(response);
+        return;
+      }
+
+      const dbUser = result.rows[0];
+
+      // 2. Verify password match
+      const isPasswordMatch = await bcrypt.compare(password, dbUser.password_hash);
+      if (!isPasswordMatch) {
+        logger.warn(`Failed login attempt: Incorrect password for user: ${username}`, 'AuthHandler');
+        const response: ApiResponse = {
+          success: false,
+          error: 'Invalid username or password.',
+        };
+        reply.status(401).send(response);
+        return;
+      }
+
+      const user: User = {
+        id: dbUser.id,
+        username: dbUser.username,
+        email: dbUser.email,
+        role: dbUser.role,
+        createdAt: new Date(dbUser.created_at).toISOString(),
+      };
+
+      // 3. Generate Token
+      const jwtPayload: UserJWTPayload = {
+        id: user.id,
+        username: user.username,
+        role: user.role,
+      };
+      const token = signToken(jwtPayload);
+
+      logger.info(`User logged in successfully: ${username}`, 'AuthHandler');
+
+      const response: ApiResponse<{ user: User; token: string }> = {
+        success: true,
+        message: 'Login successful.',
+        data: { user, token },
+      };
+
+      reply.status(200).send(response);
+    } catch (error: unknown) {
+      if (error instanceof Error) {
+        logger.error('Error executing user login query.', error, 'AuthHandler');
+      } else {
+        logger.error('Error executing user login query with unknown error.', new Error(String(error)), 'AuthHandler');
+      }
+
+      const response: ApiResponse = {
+        success: false,
+        error: 'An unexpected database error occurred during login.',
+      };
+      reply.status(500).send(response);
+    }
+  }
+);
+
+/**
+ * Secured endpoint to retrieve the current user profile.
+ */
+fastify.get(
+  '/auth/me',
+  { preHandler: [authenticate] },
+  async (
+    request: FastifyRequest,
+    reply: FastifyReply
+  ): Promise<void> => {
+    // request.user is set by the authenticate middleware
+    const response: ApiResponse<{ user: UserJWTPayload }> = {
+      success: true,
+      data: {
+        user: request.user!,
+      },
+    };
+    reply.status(200).send(response);
+  }
+);
+
+/**
+ * On-demand targeted crawler endpoint.
+ */
+fastify.post('/api/crawler/extract', async (request: FastifyRequest, reply: FastifyReply) => {
   const {
     platform,
     mode,
@@ -121,65 +383,60 @@ app.post('/api/crawler/extract', async (req, res) => {
     startDate,
     endDate,
     extractComments = false
-  } = req.body;
+  } = request.body as CrawlerExtractDto;
 
   if (!platform || !target) {
-    return res.status(400).json({ error: 'Platform and Target parameters are required.' });
+    reply.status(400).send({ error: 'Platform and Target parameters are required.' });
+    return;
   }
 
   logger.info(`API Request: Extracting target "${target}" from platform "${platform}"`, 'APIServer');
 
   try {
     let items: RawCrawledItem[] = [];
-    const runLimit = parseInt(limit, 10);
-    const runDepth = parseInt(depth, 10);
+    const runLimit = typeof limit === 'string' ? parseInt(limit, 10) : limit;
+    const runDepth = typeof depth === 'string' ? parseInt(depth, 10) : depth;
 
     switch (platform.toLowerCase()) {
       case 'reddit':
-        // Reddit modes: subreddit profile or search terms
         items = await redditScraper.scrape(target, runLimit, extractComments, startDate, endDate);
         break;
 
       case 'telegram':
-        // Telegram channel preview extraction
         items = await telegramScraper.scrape(target, runLimit, startDate, endDate);
         break;
 
       case 'instagram':
-        // Instagram modes: profile, hashtag, or location ID
         const igMode = mode === 'hashtag' ? 'hashtag' : mode === 'location' ? 'location' : 'profile';
         items = await instagramScraper.scrape(igMode, target, runLimit, startDate, endDate, true);
         break;
 
       case 'twitter':
       case 'x':
-        // Twitter/X modes: handle, hashtag, search, or coordinates
         const twMode = mode === 'hashtag' ? 'hashtag' : mode === 'location' ? 'location' : mode === 'handle' ? 'handle' : 'search';
         items = await twitterScraper.scrape(twMode, target, runLimit, startDate, endDate, true);
         break;
 
       case 'youtube':
-        // YouTube modes: channel username or search query
         const ytMode = mode === 'channel' ? 'channel' : 'search';
         items = await youtubeScraper.scrape(ytMode, target, runLimit, startDate, endDate, true);
         break;
 
       case 'facebook':
-        // Facebook page username
         items = await facebookScraper.scrape(target, runLimit, startDate, endDate);
         break;
 
       default:
-        return res.status(400).json({ error: `Platform "${platform}" is not supported.` });
+        reply.status(400).send({ error: `Platform "${platform}" is not supported.` });
+        return;
     }
 
-    // Apply custom date range filtering
     const filteredItems = filterByDateRange(items, startDate, endDate);
     logger.info(`API Response: Successfully extracted and returned ${filteredItems.length} items.`, 'APIServer');
     
     const summary = await generateOSINTSummary(filteredItems);
     
-    return res.json({
+    reply.send({
       success: true,
       platform,
       target,
@@ -190,16 +447,19 @@ app.post('/api/crawler/extract', async (req, res) => {
 
   } catch (error) {
     logger.error('API Crawler extraction failed', error as Error, 'APIServer');
-    return res.status(500).json({
+    reply.status(500).send({
       error: 'Crawler extraction failed',
       details: (error as Error).message
     });
   }
 });
 
-// Serve static single-page control panel dashboard directly at root
-app.get('/', (req, res) => {
-  res.send(`
+/**
+ * Serve static single-page control panel dashboard directly at root.
+ */
+fastify.get('/', async (request: FastifyRequest, reply: FastifyReply) => {
+  const PORT = process.env.PORT || '3000';
+  const html = `
     <!DOCTYPE html>
     <html lang="en">
     <head>
@@ -269,7 +529,7 @@ app.get('/', (req, res) => {
           </div>
           <div class="flex items-center space-x-2">
             <span class="w-3.5 h-3.5 bg-emerald-500 rounded-full animate-pulse"></span>
-            <span class="text-slate-300 text-sm font-semibold tracking-wider font-mono">BACKEND ACTIVE : PORT ${PORT}</span>
+            <span class="text-slate-300 text-sm font-semibold tracking-wider font-mono">BACKEND ACTIVE : PORT \${PORT}</span>
           </div>
         </header>
 
@@ -455,8 +715,8 @@ app.get('/', (req, res) => {
           btnText.textContent = "EXTRACTING DATA...";
           loader.classList.remove('hidden');
 
-          appendLog(\`Task initialized. Platform: \${platform.toUpperCase()} | Target: "\${target}"...\`);
-          appendLog(\`Launching local headless browser wrapper context...\`);
+          appendLog(\`Task initialized. Platform: \${platform.toUpperCase()} | Target: "\${target}"...\\n\`);
+          appendLog(\`Launching local headless browser wrapper context...\\n\`);
 
           try {
             const response = await fetch('/api/crawler/extract', {
@@ -472,7 +732,7 @@ app.get('/', (req, res) => {
             }
 
             currentData = result.data || [];
-            appendLog(\`Extraction completed! Retrieved \${currentData.length} records.\`, 'success');
+            appendLog(\`Extraction completed! Retrieved \${currentData.length} records.\\n\`, 'success');
 
             // Render Results
             renderResults(currentData);
@@ -485,7 +745,7 @@ app.get('/', (req, res) => {
             }
 
           } catch (err) {
-            appendLog(\`Task failed: \${err.message}\`, 'error');
+            appendLog(\`Task failed: \${err.message}\\n\`, 'error');
             alert(\`Extraction Failed: \${err.message}\`);
           } finally {
             submitBtn.disabled = false;
@@ -592,9 +852,43 @@ app.get('/', (req, res) => {
       </script>
     </body>
     </html>
-  `);
+  `;
+  reply.type('text/html').send(html);
 });
 
-app.listen(PORT, () => {
-  logger.info(`Rakshak AI API server started on port ${PORT}`, 'APIServer');
-});
+/**
+ * Initializes resources and starts the Fastify API server.
+ */
+async function startServer(): Promise<void> {
+  try {
+    // 1. Initialize PostgreSQL schemas/tables
+    await initializeDatabase();
+
+    // 2. Configure CORS
+    await fastify.register(cors, {
+      origin: true,
+      credentials: true,
+      methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+      allowedHeaders: ['Content-Type', 'Authorization', 'Origin', 'Accept', 'X-Requested-With'],
+    });
+
+    // 3. Start Server
+    const port = parseInt(process.env.PORT || '3000', 10);
+    const host = process.env.HOST || '0.0.0.0';
+
+    await fastify.listen({ port, host });
+    logger.info(`Rakshak API server is running on http://${host}:${port}`, 'FastifyServer');
+  } catch (error: unknown) {
+    if (error instanceof Error) {
+      logger.error('Failed to start the Fastify API server.', error, 'FastifyServer');
+    } else {
+      logger.error('Failed to start the Fastify API server with unknown error.', new Error(String(error)), 'FastifyServer');
+    }
+    process.exit(1);
+  }
+}
+
+// Invoke server start
+if (require.main === module) {
+  startServer();
+}
