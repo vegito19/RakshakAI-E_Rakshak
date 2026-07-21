@@ -1,6 +1,7 @@
 import { chromium, Browser, Page } from 'playwright';
 import { RawCrawledItem, RedditMetadata } from '../../shared-types/crawler';
 import { logger } from '../../utils/logger';
+import { proxyRotator } from './proxyRotator';
 
 export class RedditScraper {
   private browser: Browser | null = null;
@@ -42,9 +43,10 @@ export class RedditScraper {
    * Scrapes a specific subreddit's new posts list.
    * @param subreddit Name of the subreddit (e.g. "surat")
    * @param limit Maximum number of posts to fetch (default: 25)
+   * @param extractComments Whether to fetch top comments for each post
    * @returns Array of raw crawled items mapped strictly to schema definitions
    */
-  public async scrapeSubreddit(subreddit: string, limit: number = 25): Promise<RawCrawledItem[]> {
+  public async scrape(subreddit: string, limit: number = 25, extractComments: boolean = false, startDate?: string, endDate?: string): Promise<RawCrawledItem[]> {
     const items: RawCrawledItem[] = [];
     let page: Page | null = null;
 
@@ -59,22 +61,10 @@ export class RedditScraper {
         viewport: { width: 1280, height: 1000 }
       };
 
-      if (process.env.PROXY_SERVER) {
-        try {
-          const url = new URL(process.env.PROXY_SERVER);
-          const proxyConfig: any = {
-            server: `${url.protocol}//${url.host}`
-          };
-          if (url.username) proxyConfig.username = decodeURIComponent(url.username);
-          if (url.password) proxyConfig.password = decodeURIComponent(url.password);
-          contextOptions.proxy = proxyConfig;
-          logger.info(`Routing requests through proxy: ${proxyConfig.server}`, 'RedditScraper');
-        } catch {
-          contextOptions.proxy = {
-            server: process.env.PROXY_SERVER
-          };
-          logger.info(`Routing requests through proxy server: ${process.env.PROXY_SERVER}`, 'RedditScraper');
-        }
+      const proxyConfig = proxyRotator.getNextProxy();
+      if (proxyConfig) {
+        contextOptions.proxy = proxyConfig;
+        logger.info(`Routing requests through proxy: ${proxyConfig.server}`, 'RedditScraper');
       }
 
       const context = await browser.newContext(contextOptions);
@@ -110,7 +100,8 @@ export class RedditScraper {
       const postElements = await page.locator('shreddit-post').all();
       logger.info(`Found ${postElements.length} post containers in r/${subreddit}`, 'RedditScraper');
 
-      for (const element of postElements.slice(0, limit)) {
+      for (const element of postElements) {
+        if (items.length >= limit) break;
         try {
           const id = await element.getAttribute('id');
           if (!id) {
@@ -125,6 +116,23 @@ export class RedditScraper {
           const scoreStr = await element.getAttribute('score') || '0';
           const commentCountStr = await element.getAttribute('comment-count') || '0';
           const createdTimestamp = await element.getAttribute('created-timestamp') || new Date().toISOString();
+          const pubTime = new Date(createdTimestamp).getTime();
+
+          if (startDate) {
+            const start = new Date(startDate).getTime();
+            if (pubTime < start) {
+              logger.debug(`Reddit: Skipping post older than start date (${startDate})`, 'RedditScraper');
+              continue;
+            }
+          }
+          if (endDate) {
+            const end = new Date(endDate).getTime();
+            if (pubTime > end) {
+              logger.debug(`Reddit: Skipping post newer than end date (${endDate})`, 'RedditScraper');
+              continue;
+            }
+          }
+
           const subredditName = await element.getAttribute('subreddit-name') || subreddit;
 
           const upvotes = parseInt(scoreStr, 10);
@@ -147,7 +155,7 @@ export class RedditScraper {
             content = `[External Link Post] ${postUrl}`;
           }
 
-          const metadata: RedditMetadata = {
+          const metadata: any = {
             subreddit: subredditName,
             upvotes,
             commentsCount,
@@ -155,6 +163,11 @@ export class RedditScraper {
             isOver18,
             score: upvotes
           };
+
+          if (extractComments && postUrl) {
+            logger.info(`Fetching deep comments for post: ${id}`, 'RedditScraper');
+            metadata.comments = await fetchRedditComments(postUrl);
+          }
 
           const rawItem: RawCrawledItem = {
             id,
@@ -189,3 +202,30 @@ export class RedditScraper {
 }
 
 export const redditScraper = new RedditScraper();
+
+async function fetchRedditComments(postUrl: string): Promise<any[]> {
+  try {
+    const cleanUrl = postUrl.split('?')[0].replace(/\/$/, '') + '.json';
+    const res = await fetch(cleanUrl, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+      }
+    });
+    if (!res.ok) return [];
+    const data = await res.json();
+    if (Array.isArray(data) && data.length > 1) {
+      const commentsList = data[1].data?.children || [];
+      return commentsList
+        .slice(0, 10)
+        .map((c: any) => ({
+          author: c.data?.author || '[deleted]',
+          text: c.data?.body || '',
+          score: c.data?.score || 0
+        }))
+        .filter((c: any) => c.text);
+    }
+  } catch (err) {
+    logger.debug(`Failed to fetch Reddit comments for ${postUrl}: ${(err as Error).message}`, 'RedditScraper');
+  }
+  return [];
+}
