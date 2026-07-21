@@ -17,15 +17,62 @@ export const pool = connectionString
     });
 
 /**
- * Ensures the 'users' table exists and links the 'alerts' table's
- * assigned_officer_id column to it via a foreign key constraint.
+ * Ensures all required database tables exist (raw_posts, processed_posts, users, alerts),
+ * handling PostGIS absence gracefully and setting up indexes and constraints.
  */
 export async function initializeDatabase(): Promise<void> {
   const client = await pool.connect();
   try {
     logger.info('Initializing database schemas...', 'DatabaseInit');
 
-    // Create users table
+    // 1. Try to enable PostGIS extension (optional)
+    let hasPostGIS = false;
+    try {
+      await client.query('CREATE EXTENSION IF NOT EXISTS postgis;');
+      hasPostGIS = true;
+      logger.info('PostGIS extension enabled successfully.', 'DatabaseInit');
+    } catch (err) {
+      logger.warn(`PostGIS extension is not available on this PostgreSQL server: ${(err as Error).message}. Falling back to standard string storage for locations.`, 'DatabaseInit');
+    }
+
+    // 2. Create raw_posts table
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS raw_posts (
+          id VARCHAR(100) PRIMARY KEY,
+          source VARCHAR(20) NOT NULL,
+          url TEXT NOT NULL,
+          title TEXT,
+          content TEXT NOT NULL,
+          author VARCHAR(100) NOT NULL,
+          published_at TIMESTAMP WITH TIME ZONE NOT NULL,
+          crawled_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP NOT NULL,
+          metadata JSONB NOT NULL
+      );
+    `);
+    await client.query('CREATE INDEX IF NOT EXISTS idx_raw_posts_source ON raw_posts(source);');
+    await client.query('CREATE INDEX IF NOT EXISTS idx_raw_posts_published ON raw_posts(published_at);');
+
+    // 3. Create processed_posts table
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS processed_posts (
+          id SERIAL PRIMARY KEY,
+          raw_post_id VARCHAR(100) REFERENCES raw_posts(id) ON DELETE CASCADE UNIQUE,
+          original_language VARCHAR(10) NOT NULL,
+          translated_title TEXT,
+          translated_content TEXT NOT NULL,
+          sentiment_score NUMERIC(5, 4) NOT NULL,
+          sentiment_label VARCHAR(20) NOT NULL,
+          threat_score NUMERIC(5, 4) NOT NULL,
+          threat_label VARCHAR(20) NOT NULL,
+          threat_category VARCHAR(50) NOT NULL,
+          named_entities JSONB NOT NULL,
+          processed_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP NOT NULL
+      );
+    `);
+    await client.query('CREATE INDEX IF NOT EXISTS idx_processed_posts_threat_score ON processed_posts(threat_score);');
+    await client.query('CREATE INDEX IF NOT EXISTS idx_processed_posts_threat_category ON processed_posts(threat_category);');
+
+    // 4. Create users table
     await client.query(`
       CREATE TABLE IF NOT EXISTS users (
           id SERIAL PRIMARY KEY,
@@ -36,13 +83,25 @@ export async function initializeDatabase(): Promise<void> {
           created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP NOT NULL
       );
     `);
+    await client.query('CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);');
 
-    // Create index for username lookups
+    // 5. Create alerts table
+    const geomColumnType = hasPostGIS ? 'GEOMETRY(Point, 4326)' : 'TEXT';
     await client.query(`
-      CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);
+      CREATE TABLE IF NOT EXISTS alerts (
+          id SERIAL PRIMARY KEY,
+          processed_post_id INTEGER REFERENCES processed_posts(id) ON DELETE CASCADE,
+          severity VARCHAR(20) NOT NULL,
+          status VARCHAR(20) DEFAULT 'pending' NOT NULL,
+          assigned_officer_id INTEGER,
+          location_geom ${geomColumnType},
+          created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP NOT NULL
+      );
     `);
+    await client.query('CREATE INDEX IF NOT EXISTS idx_alerts_status ON alerts(status);');
+    await client.query('CREATE INDEX IF NOT EXISTS idx_alerts_severity ON alerts(severity);');
 
-    // Add foreign key constraint to alerts table if not exists
+    // 6. Add foreign key constraint to alerts table if not exists
     const constraintCheck = await client.query(`
       SELECT constraint_name 
       FROM information_schema.table_constraints 
