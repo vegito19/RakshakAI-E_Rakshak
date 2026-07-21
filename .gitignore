@@ -3,3 +3,8 @@ dist/
 *.log
 .env
 .gemini/
+
+# Virtual environments
+venv/
+.venv/
+env/

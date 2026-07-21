@@ -1,4 +1,4 @@
-export type SocialSource = 'reddit' | 'twitter' | 'telegram' | 'youtube' | 'news';
+export type SocialSource = 'reddit' | 'twitter' | 'telegram' | 'youtube' | 'news' | 'instagram' | 'facebook';
 
 export interface RedditMetadata {
   subreddit: string;
@@ -15,6 +15,14 @@ export interface TelegramMetadata {
   postId: number;
 }
 
+export interface InstagramMetadata {
+  likesCount: number;
+  commentsCount: number;
+  isVideo: boolean;
+  accessibilityCaption?: string;
+  hashtags?: string[];
+}
+
 export interface RawCrawledItem {
   id: string;              // Unique platform-agnostic ID (e.g., Reddit submission fullname, Telegram message ID)
   source: SocialSource;    // 'reddit', 'telegram', etc.
@@ -24,5 +32,5 @@ export interface RawCrawledItem {
   author: string;          // Author username or channel name
   publishedAt: string;     // ISO 8601 UTC timestamp of post creation
   crawledAt: string;       // ISO 8601 UTC timestamp of crawling
-  metadata: RedditMetadata | TelegramMetadata | Record<string, any>; // Extensible metadata block
+  metadata: RedditMetadata | TelegramMetadata | InstagramMetadata | Record<string, any>; // Extensible metadata block
 }

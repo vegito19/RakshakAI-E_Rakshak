@@ -1,6 +1,7 @@
 import { chromium, Browser, Page } from 'playwright';
 import { RawCrawledItem, TelegramMetadata } from '../../shared-types/crawler';
 import { logger } from '../../utils/logger';
+import { proxyRotator } from './proxyRotator';
 
 export class TelegramScraper {
   private browser: Browser | null = null;
@@ -61,7 +62,7 @@ export class TelegramScraper {
    * @param limit Maximum number of messages to fetch (default: 25)
    * @returns Array of raw crawled items mapped strictly to schema definitions
    */
-  public async scrapeChannel(channelName: string, limit: number = 25): Promise<RawCrawledItem[]> {
+  public async scrape(channelName: string, limit: number = 25, startDate?: string, endDate?: string): Promise<RawCrawledItem[]> {
     const items: RawCrawledItem[] = [];
     let page: Page | null = null;
 
@@ -75,22 +76,10 @@ export class TelegramScraper {
         locale: 'en-US'
       };
 
-      if (process.env.PROXY_SERVER) {
-        try {
-          const url = new URL(process.env.PROXY_SERVER);
-          const proxyConfig: any = {
-            server: `${url.protocol}//${url.host}`
-          };
-          if (url.username) proxyConfig.username = decodeURIComponent(url.username);
-          if (url.password) proxyConfig.password = decodeURIComponent(url.password);
-          contextOptions.proxy = proxyConfig;
-          logger.info(`Routing requests through proxy: ${proxyConfig.server}`, 'TelegramScraper');
-        } catch {
-          contextOptions.proxy = {
-            server: process.env.PROXY_SERVER
-          };
-          logger.info(`Routing requests through proxy server: ${process.env.PROXY_SERVER}`, 'TelegramScraper');
-        }
+      const proxyConfig = proxyRotator.getNextProxy();
+      if (proxyConfig) {
+        contextOptions.proxy = proxyConfig;
+        logger.info(`Routing requests through proxy: ${proxyConfig.server}`, 'TelegramScraper');
       }
 
       const context = await browser.newContext(contextOptions);
@@ -116,10 +105,11 @@ export class TelegramScraper {
       const messageElements = await page.locator('div.tgme_widget_message').all();
       logger.info(`Found ${messageElements.length} messages in preview. Commencing parsing...`, 'TelegramScraper');
 
-      // Sort and slice messages (Telegram lists oldest first at the top, newest at the bottom. We slice the latest `limit` posts)
-      const targetElements = messageElements.slice(-limit);
-
+      // Sort and reverse messages so we parse the newest posts first (Telegram lists oldest first at the top)
+      const targetElements = [...messageElements].reverse();
+ 
       for (const element of targetElements) {
+        if (items.length >= limit) break;
         try {
           // Parse data-post attribute (e.g. "channel/123")
           const postPath = await element.getAttribute('data-post');
@@ -157,6 +147,22 @@ export class TelegramScraper {
             const datetimeAttr = await timeEl.getAttribute('datetime');
             if (datetimeAttr) {
               publishedAt = new Date(datetimeAttr).toISOString();
+            }
+          }
+
+          const pubTime = new Date(publishedAt).getTime();
+          if (startDate) {
+            const start = new Date(startDate).getTime();
+            if (pubTime < start) {
+              logger.debug(`Telegram: Skipping post older than start date (${startDate})`, 'TelegramScraper');
+              continue;
+            }
+          }
+          if (endDate) {
+            const end = new Date(endDate).getTime();
+            if (pubTime > end) {
+              logger.debug(`Telegram: Skipping post newer than end date (${endDate})`, 'TelegramScraper');
+              continue;
             }
           }
 

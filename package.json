@@ -6,14 +6,19 @@
   "scripts": {
     "crawler": "ts-node crawler/crawler.ts",
     "crawler:test": "ts-node crawler/crawler.ts --test",
+    "start": "ts-node api/src/server.ts",
     "build": "tsc"
   },
   "dependencies": {
+    "cors": "^2.8.6",
     "dotenv": "^16.4.5",
+    "express": "^5.2.1",
     "ioredis": "^5.4.1",
     "playwright": "^1.45.1"
   },
   "devDependencies": {
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.6",
     "@types/node": "^20.14.9",
     "ts-node": "^10.9.2",
     "typescript": "^5.5.2"
