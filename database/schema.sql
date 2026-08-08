@@ -68,3 +68,36 @@ ADD CONSTRAINT fk_alerts_assigned_officer
 FOREIGN KEY (assigned_officer_id) 
 REFERENCES users(id) 
 ON DELETE SET NULL;
+
+-- 5. Dark Web Ingested Pastes & Forums
+CREATE TABLE IF NOT EXISTS darkweb_pastes (
+    id VARCHAR(100) PRIMARY KEY,
+    onion_site VARCHAR(150) NOT NULL,
+    title TEXT,
+    content TEXT NOT NULL,
+    threat_level VARCHAR(20) NOT NULL, -- 'critical', 'warning', 'info'
+    category VARCHAR(50) NOT NULL,      -- 'breach', 'contraband', 'malware', 'leak'
+    detected_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP NOT NULL
+);
+
+-- 6. Breach & Leak Search Index
+CREATE TABLE IF NOT EXISTS breach_records (
+    id SERIAL PRIMARY KEY,
+    target_identifier VARCHAR(150) NOT NULL, -- Email, phone number, or crypto wallet address
+    source_leak VARCHAR(100) NOT NULL,       -- Leak source name e.g. 'Surat_DB_Dump_2026'
+    breach_type VARCHAR(50) NOT NULL,        -- 'credentials', 'pii', 'financial'
+    data_sample TEXT NOT NULL,
+    leaked_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP NOT NULL
+);
+
+-- 7. Digital Forensics Rapid Triage Evidence Vault
+CREATE TABLE IF NOT EXISTS forensic_evidence (
+    id SERIAL PRIMARY KEY,
+    case_number VARCHAR(50) NOT NULL,
+    source_file VARCHAR(150) NOT NULL,
+    evidence_type VARCHAR(50) NOT NULL,      -- 'whatsapp_chat', 'sms_dump', 'call_log'
+    suspicious_count INTEGER DEFAULT 0,
+    extracted_summary JSONB NOT NULL,
+    triaged_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP NOT NULL
+);
+

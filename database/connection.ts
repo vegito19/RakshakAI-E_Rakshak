@@ -121,6 +121,44 @@ export async function initializeDatabase(): Promise<void> {
       logger.debug('fk_alerts_assigned_officer constraint already exists.', 'DatabaseInit');
     }
 
+    // 7. Create darkweb_pastes table
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS darkweb_pastes (
+          id VARCHAR(100) PRIMARY KEY,
+          onion_site VARCHAR(150) NOT NULL,
+          title TEXT,
+          content TEXT NOT NULL,
+          threat_level VARCHAR(20) NOT NULL,
+          category VARCHAR(50) NOT NULL,
+          detected_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP NOT NULL
+      );
+    `);
+
+    // 8. Create breach_records table
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS breach_records (
+          id SERIAL PRIMARY KEY,
+          target_identifier VARCHAR(150) NOT NULL,
+          source_leak VARCHAR(100) NOT NULL,
+          breach_type VARCHAR(50) NOT NULL,
+          data_sample TEXT NOT NULL,
+          leaked_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP NOT NULL
+      );
+    `);
+
+    // 9. Create forensic_evidence table
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS forensic_evidence (
+          id SERIAL PRIMARY KEY,
+          case_number VARCHAR(50) NOT NULL,
+          source_file VARCHAR(150) NOT NULL,
+          evidence_type VARCHAR(50) NOT NULL,
+          suspicious_count INTEGER DEFAULT 0,
+          extracted_summary JSONB NOT NULL,
+          triaged_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP NOT NULL
+      );
+    `);
+
     logger.info('Database schema initialization completed successfully.', 'DatabaseInit');
   } catch (error) {
     logger.error('Database initialization encountered a fatal error.', error as Error, 'DatabaseInit');

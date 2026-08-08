@@ -22,6 +22,9 @@ import { RawCrawledItem, SocialSource } from '../../shared-types/crawler';
 // Import local NLP and Fallback utilities
 import { analyzePost, computeContentHash, SURAT_LOCATIONS, AnalyzedOutput } from '../../utils/nlpProcessor';
 import { generateMockOSINT } from '../../utils/fallbackGenerator';
+import { darkWebMonitor } from '../../crawler/sources/darkwebMonitor';
+import { forensicTriageService } from '../../utils/forensicTriage';
+import { copilotEngine } from '../../utils/copilotEngine';
 
 dotenv.config();
 
@@ -997,6 +1000,100 @@ fastify.get('/api/dashboard/reports/:alertId', { preHandler: [authenticate] }, a
 });
 
 /**
+ * Dark Web Intelligence & Breach Leak API Endpoints
+ */
+fastify.get('/api/darkweb/pastes', { preHandler: [authenticate] }, async (request, reply) => {
+  try {
+    const pastes = await darkWebMonitor.getRecentPastes();
+    reply.send({ success: true, count: pastes.length, pastes });
+  } catch (err) {
+    reply.status(500).send({ error: 'Failed to retrieve darkweb pastes', details: (err as Error).message });
+  }
+});
+
+fastify.post('/api/darkweb/search', { preHandler: [authenticate] }, async (request, reply) => {
+  try {
+    const { query } = request.body as { query?: string };
+    if (!query) {
+      reply.status(400).send({ error: 'Query string is required' });
+      return;
+    }
+    const results = await darkWebMonitor.searchBreaches(query);
+    reply.send({ success: true, count: results.length, results });
+  } catch (err) {
+    reply.status(500).send({ error: 'Failed to perform breach search', details: (err as Error).message });
+  }
+});
+
+/**
+ * Agentic Crime OS AI Copilot API Endpoint
+ */
+fastify.post('/api/copilot/chat', { preHandler: [authenticate] }, async (request, reply) => {
+  try {
+    const { message } = request.body as { message?: string };
+    if (!message) {
+      reply.status(400).send({ error: 'Message content is required' });
+      return;
+    }
+    const copilotResult = await copilotEngine.queryCopilot(message);
+    reply.send({ success: true, copilot: copilotResult });
+  } catch (err) {
+    reply.status(500).send({ error: 'Failed to execute copilot query', details: (err as Error).message });
+  }
+});
+
+/**
+ * Digital Forensics Mobile Triage API Endpoint
+ */
+fastify.post('/api/forensics/triage', { preHandler: [authenticate] }, async (request, reply) => {
+  try {
+    const { fileContent, filename, caseNumber } = request.body as { fileContent?: string; filename?: string; caseNumber?: string };
+    if (!fileContent || !filename) {
+      reply.status(400).send({ error: 'fileContent and filename are required' });
+      return;
+    }
+    const triageResult = forensicTriageService.parseMobileDump(fileContent, filename, caseNumber || 'CASE-2026-SRT-091');
+    reply.send({ success: true, triage: triageResult });
+  } catch (err) {
+    reply.status(500).send({ error: 'Failed to execute forensic triage', details: (err as Error).message });
+  }
+});
+
+/**
+ * Multi-Platform Suspect Profiler API Endpoint
+ */
+fastify.get('/api/profiler/suspect', { preHandler: [authenticate] }, async (request, reply) => {
+  try {
+    const { handle } = request.query as { handle?: string };
+    if (!handle) {
+      reply.status(400).send({ error: 'Handle parameter is required' });
+      return;
+    }
+    
+    const postsRes = await pool.query(
+      `SELECT r.source, r.title, r.content, r.published_at as "publishedAt", p.threat_score as "threatScore", p.threat_category as "threatCategory"
+       FROM raw_posts r
+       JOIN processed_posts p ON r.id = p.raw_post_id
+       WHERE r.author ILIKE $1 OR r.content ILIKE $1
+       ORDER BY r.published_at DESC LIMIT 20;`,
+      [`%${handle}%`]
+    );
+
+    const profile = {
+      targetHandle: handle,
+      matchedRecordsCount: postsRes.rowCount,
+      riskLevel: (postsRes.rowCount ?? 0) > 3 ? 'HIGH' : (postsRes.rowCount ?? 0) > 0 ? 'MEDIUM' : 'LOW',
+      associatedPlatforms: Array.from(new Set(postsRes.rows.map((r: any) => r.source))),
+      recentActivity: postsRes.rows
+    };
+
+    reply.send({ success: true, profile });
+  } catch (err) {
+    reply.status(500).send({ error: 'Failed to generate suspect profile', details: (err as Error).message });
+  }
+});
+
+/**
  * Serve breathtaking, tactical command center dashboard for police.
  */
 fastify.get('/', async (request: FastifyRequest, reply: FastifyReply) => {
@@ -1253,7 +1350,27 @@ fastify.get('/', async (request: FastifyRequest, reply: FastifyReply) => {
       </div>
     </header>
 
-    <div class="flex-1 max-w-7xl w-full mx-auto p-4 md:p-6 space-y-6">
+    <!-- Navigation Tabs for Unified Law Enforcement Command Platform -->
+    <div class="bg-slate-950/80 border-b border-slate-800 px-6 py-2.5 flex overflow-x-auto space-x-2 font-mono text-xs no-print">
+      <button id="tabBtnSurface" onclick="switchTab('surface')" class="px-4 py-2 rounded-lg font-bold bg-cyan-500/20 text-cyan-400 border border-cyan-500/40 flex items-center gap-2">
+        🌐 Surface OSINT Command
+      </button>
+      <button id="tabBtnDarkweb" onclick="switchTab('darkweb')" class="px-4 py-2 rounded-lg font-bold text-slate-400 hover:text-slate-200 hover:bg-slate-900 flex items-center gap-2">
+        🧅 Dark Web & Leak Intel
+      </button>
+      <button id="tabBtnCopilot" onclick="switchTab('copilot')" class="px-4 py-2 rounded-lg font-bold text-slate-400 hover:text-slate-200 hover:bg-slate-900 flex items-center gap-2">
+        🤖 Agentic AI Copilot
+      </button>
+      <button id="tabBtnForensics" onclick="switchTab('forensics')" class="px-4 py-2 rounded-lg font-bold text-slate-400 hover:text-slate-200 hover:bg-slate-900 flex items-center gap-2">
+        📱 Mobile Forensic Triage
+      </button>
+      <button id="tabBtnProfiler" onclick="switchTab('profiler')" class="px-4 py-2 rounded-lg font-bold text-slate-400 hover:text-slate-200 hover:bg-slate-900 flex items-center gap-2">
+        👤 Suspect 360° Profiler
+      </button>
+    </div>
+
+    <!-- TAB 1: Surface OSINT Command (Existing Dashboard) -->
+    <div id="tabSurface" class="flex-1 max-w-7xl w-full mx-auto p-4 md:p-6 space-y-6">
       
       <!-- Stats Counters Grid -->
       <div class="grid grid-cols-2 lg:grid-cols-4 gap-4">
@@ -1468,6 +1585,203 @@ fastify.get('/', async (request: FastifyRequest, reply: FastifyReply) => {
       </section>
 
     </div>
+
+    <!-- TAB 2: Dark Web & Leak Intel (ERH26_PS_06) -->
+    <div id="tabDarkweb" class="hidden flex-1 max-w-7xl w-full mx-auto p-4 md:p-6 space-y-6">
+      <div class="glass p-6 rounded-3xl border border-purple-500/20 space-y-6">
+        <div class="flex justify-between items-center">
+          <div>
+            <h3 class="text-lg font-bold text-white flex items-center gap-2">
+              🧅 LOCALIZED DARK WEB & BREACH INTEL MONITOR
+              <span class="text-[10px] bg-purple-500/20 text-purple-300 px-2 py-0.5 rounded font-mono uppercase">TOR Proxy Node</span>
+            </h3>
+            <p class="text-xs text-slate-400">Monitoring .onion pastebins, breach dumps, and leak forums linked to Surat/Gujarat</p>
+          </div>
+          <button onclick="loadDarkWebPastes()" class="px-4 py-2 bg-purple-600 hover:bg-purple-500 text-white rounded-xl text-xs font-bold font-mono transition">
+            🔄 REFRESH ONION FEEDS
+          </button>
+        </div>
+
+        <!-- Leak Lookup Input -->
+        <div class="p-4 bg-slate-950/80 rounded-2xl border border-slate-800 space-y-3">
+          <label class="block text-xs font-bold text-slate-300 font-mono">DARK WEB BREACH SEARCH ENGINE (Email, Phone, Crypto Wallet)</label>
+          <div class="flex gap-2">
+            <input type="text" id="breachQuery" placeholder="Enter target (e.g. officer@suratpolice.gov.in, 9898012345, or wallet address)" class="flex-1 bg-slate-900 border border-slate-800 rounded-xl px-4 py-2.5 text-sm text-white font-mono focus:outline-none focus:border-purple-500">
+            <button onclick="searchBreachData()" class="px-6 py-2.5 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-bold text-xs rounded-xl transition">
+              SEARCH LEAKS
+            </button>
+          </div>
+        </div>
+
+        <!-- Leak Search Results Container -->
+        <div id="breachResults" class="hidden p-4 bg-purple-950/20 border border-purple-500/30 rounded-2xl space-y-2">
+          <h4 class="text-xs font-bold text-purple-300 font-mono">MATCHED BREACH DUMPS:</h4>
+          <div id="breachList" class="space-y-2 text-xs font-mono"></div>
+        </div>
+
+        <!-- Dark Web Pastes Feeds Table -->
+        <div class="overflow-x-auto border border-slate-800 rounded-2xl">
+          <table class="w-full text-left text-xs font-mono">
+            <thead class="bg-slate-900 text-slate-400 uppercase text-[10px] tracking-wider">
+              <tr>
+                <th class="p-3">Threat</th>
+                <th class="p-3">Onion Site</th>
+                <th class="p-3">Title</th>
+                <th class="p-3">Category</th>
+                <th class="p-3">Detected At</th>
+              </tr>
+            </thead>
+            <tbody id="darkwebTable" class="divide-y divide-slate-800 text-slate-300">
+              <tr><td colspan="5" class="p-4 text-center text-slate-500">Loading dark web intelligence feeds...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- TAB 3: Agentic AI Copilot (ERH26_PS_10) -->
+    <div id="tabCopilot" class="hidden flex-1 max-w-7xl w-full mx-auto p-4 md:p-6 space-y-6">
+      <div class="glass p-6 rounded-3xl border border-indigo-500/20 space-y-6">
+        <div class="flex justify-between items-center">
+          <div>
+            <h3 class="text-lg font-bold text-white flex items-center gap-2">
+              🤖 RAKSHAK AGENTIC CRIME OS COPILOT
+              <span class="text-[10px] bg-indigo-500/20 text-indigo-300 px-2 py-0.5 rounded font-mono uppercase">Gemini 1.5 Powered</span>
+            </h3>
+            <p class="text-xs text-slate-400">Autonomous AI Assistant for investigative queries, drafting FIR reports, and synthesizing case timelines</p>
+          </div>
+        </div>
+
+        <!-- Quick Prompt Chips -->
+        <div class="flex flex-wrap gap-2 text-xs font-mono">
+          <button onclick="sendCopilotPrompt('Draft official police FIR report for recent critical incidents')" class="px-3 py-1.5 bg-slate-900 border border-slate-800 hover:border-indigo-500 text-indigo-300 rounded-lg">
+            📋 Draft FIR Report
+          </button>
+          <button onclick="sendCopilotPrompt('Geospatial threat analysis for Vesu and VIP Road')" class="px-3 py-1.5 bg-slate-900 border border-slate-800 hover:border-indigo-500 text-indigo-300 rounded-lg">
+            📍 Vesu Threat Analysis
+          </button>
+          <button onclick="sendCopilotPrompt('Summarize active incident alerts in Surat')" class="px-3 py-1.5 bg-slate-900 border border-slate-800 hover:border-indigo-500 text-indigo-300 rounded-lg">
+            🚨 Active Alerts Summary
+          </button>
+        </div>
+
+        <!-- Copilot Chat Window -->
+        <div id="copilotChatBox" class="h-[400px] overflow-y-auto bg-slate-950/80 border border-slate-800 rounded-2xl p-4 space-y-4 text-xs">
+          <div class="p-3 bg-indigo-950/30 border border-indigo-500/30 rounded-xl space-y-1">
+            <div class="font-bold text-indigo-400 font-mono">🤖 RAKSHAK COPILOT READY</div>
+            <p class="text-slate-350 leading-relaxed font-sans">
+              Greetings, Officer. I am your Crime OS Assistant. You can ask me to draft formal police incident reports, search cases by sector (Vesu, Adajan, Varachha), or analyze threat trends across social media and dark web data.
+            </p>
+          </div>
+        </div>
+
+        <!-- Chat Input Form -->
+        <div class="flex gap-2">
+          <input type="text" id="copilotInput" placeholder="Ask Copilot a question or issue a command (e.g. 'Draft FIR report for VIP Road protest')..." class="flex-1 bg-slate-900 border border-slate-800 rounded-xl px-4 py-3 text-sm text-white font-sans focus:outline-none focus:border-indigo-500">
+          <button onclick="sendCopilotUserMessage()" class="px-6 py-3 bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs rounded-xl font-mono transition">
+            SEND COMMAND
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- TAB 4: Android Forensic Rapid Triage (ERH26_PS_02) -->
+    <div id="tabForensics" class="hidden flex-1 max-w-7xl w-full mx-auto p-4 md:p-6 space-y-6">
+      <div class="glass p-6 rounded-3xl border border-emerald-500/20 space-y-6">
+        <div class="flex justify-between items-center">
+          <div>
+            <h3 class="text-lg font-bold text-white flex items-center gap-2">
+              📱 ANDROID MOBILE EVIDENCE RAPID TRIAGE
+              <span class="text-[10px] bg-emerald-500/20 text-emerald-300 px-2 py-0.5 rounded font-mono uppercase">Forensic Preview Node</span>
+            </h3>
+            <p class="text-xs text-slate-400">Instantly triage seized mobile WhatsApp chat exports, SMS CSV logs, and suspect call records</p>
+          </div>
+        </div>
+
+        <!-- Evidence Upload / Input -->
+        <div class="p-4 bg-slate-950/80 rounded-2xl border border-slate-800 space-y-4">
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label class="block text-xs font-bold text-slate-300 font-mono mb-1">Case Reference Number</label>
+              <input type="text" id="forensicCase" value="CASE-2026-SRT-091" class="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white font-mono">
+            </div>
+            <div>
+              <label class="block text-xs font-bold text-slate-300 font-mono mb-1">Artifact File Name</label>
+              <input type="text" id="forensicFilename" value="whatsapp_chat_export_suspect.txt" class="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white font-mono">
+            </div>
+          </div>
+          <div>
+            <label class="block text-xs font-bold text-slate-300 font-mono mb-1">Paste Raw Mobile Dump Content (WhatsApp Export / Call Log CSV)</label>
+            <textarea id="forensicContent" rows="6" placeholder="Paste extracted chat text file or CSV logs here..." class="w-full bg-slate-900 border border-slate-800 rounded-xl p-3 text-xs text-white font-mono focus:outline-none focus:border-emerald-500">[12/07/26, 10:14:22 AM] Suspect Alpha: Send the money packet to Vesu VIP road before 5 PM.
+[12/07/26, 10:16:05 AM] Contact B: Don't use UPI transfer. Hawala cash payment only.
+[12/07/26, 10:18:40 AM] Suspect Alpha: Police PCR van is patrolling near Adajan bridge. Be careful with contraband delivery.</textarea>
+          </div>
+          <button onclick="runForensicTriage()" class="w-full py-3 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold text-xs rounded-xl font-mono transition">
+            EXECUTE AUTOMATED FORENSIC EVIDENCE TRIAGE
+          </button>
+        </div>
+
+        <!-- Triage Results Output -->
+        <div id="forensicOutput" class="hidden p-4 bg-slate-950/80 border border-emerald-500/30 rounded-2xl space-y-4">
+          <div class="flex justify-between items-center">
+            <h4 class="text-xs font-bold text-emerald-400 font-mono uppercase">Triage Analysis Results</h4>
+            <span id="forensicMeta" class="text-[10px] text-slate-400 font-mono"></span>
+          </div>
+          <p id="forensicSummary" class="text-xs text-slate-300 font-sans"></p>
+          <div id="forensicList" class="space-y-2 text-xs font-mono max-h-[300px] overflow-y-auto"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- TAB 5: Suspect 360° Profiler (ERH26_PS_01) -->
+    <div id="tabProfiler" class="hidden flex-1 max-w-7xl w-full mx-auto p-4 md:p-6 space-y-6">
+      <div class="glass p-6 rounded-3xl border border-cyan-500/20 space-y-6">
+        <div class="flex justify-between items-center">
+          <div>
+            <h3 class="text-lg font-bold text-white flex items-center gap-2">
+              👤 SUSPECT 360° CROSS-PLATFORM PROFILER
+              <span class="text-[10px] bg-cyan-500/20 text-cyan-300 px-2 py-0.5 rounded font-mono uppercase">Multi-Platform Aggregator</span>
+            </h3>
+            <p class="text-xs text-slate-400">Aggregate target handle activity across Reddit, Twitter/X, Telegram, Instagram, and YouTube into a unified risk score</p>
+          </div>
+        </div>
+
+        <!-- Search Bar -->
+        <div class="flex gap-2">
+          <input type="text" id="profilerQuery" placeholder="Enter target handle or username (e.g. rahul_surat, diamond_union)..." class="flex-1 bg-slate-900 border border-slate-800 rounded-xl px-4 py-2.5 text-sm text-white font-mono focus:outline-none focus:border-cyan-500">
+          <button onclick="searchSuspectProfile()" class="px-6 py-2.5 bg-cyan-600 hover:bg-cyan-500 text-white font-bold text-xs rounded-xl font-mono transition">
+            GENERATE PROFILE
+          </button>
+        </div>
+
+        <!-- Suspect Profile Display -->
+        <div id="profilerCard" class="hidden p-6 bg-slate-950/80 border border-slate-800 rounded-2xl space-y-6">
+          <div class="flex justify-between items-start border-b border-slate-800 pb-4">
+            <div>
+              <h4 id="profileHandle" class="text-lg font-bold text-white font-mono"></h4>
+              <p class="text-xs text-slate-400">Cross-Platform OSINT Correlation Matrix</p>
+            </div>
+            <div id="profileRiskBadge" class="px-3 py-1 rounded text-xs font-mono font-bold"></div>
+          </div>
+
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs font-mono">
+            <div class="p-3 bg-slate-900 rounded-xl border border-slate-800">
+              <span class="text-slate-500 block mb-1">Matched Content Logs:</span>
+              <strong id="profileMatches" class="text-white text-base"></strong>
+            </div>
+            <div class="p-3 bg-slate-900 rounded-xl border border-slate-800">
+              <span class="text-slate-500 block mb-1">Associated Social Networks:</span>
+              <strong id="profilePlatforms" class="text-cyan-400 text-sm"></strong>
+            </div>
+          </div>
+
+          <div>
+            <h5 class="text-xs font-bold text-slate-300 font-mono mb-2">Matched Target Activity Feed:</h5>
+            <div id="profileActivityFeed" class="space-y-2 text-xs font-mono max-h-[300px] overflow-y-auto"></div>
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
 
   <!-- ==================== EVIDENTIARY REPORT PRINT MODAL (POPUP) ==================== -->
@@ -1505,6 +1819,206 @@ fastify.get('/', async (request: FastifyRequest, reply: FastifyReply) => {
     let categoryChart = null;
     let platformChart = null;
     let officersList = [];
+
+    // Tab Navigation Switcher
+    function switchTab(tabName) {
+      const tabs = ['surface', 'darkweb', 'copilot', 'forensics', 'profiler'];
+      tabs.forEach(t => {
+        const btn = document.getElementById('tabBtn' + t.charAt(0).toUpperCase() + t.slice(1));
+        const panel = document.getElementById('tab' + t.charAt(0).toUpperCase() + t.slice(1));
+        if (!btn || !panel) return;
+        if (t === tabName) {
+          panel.classList.remove('hidden');
+          btn.className = 'px-4 py-2 rounded-lg font-bold bg-cyan-500/20 text-cyan-400 border border-cyan-500/40 flex items-center gap-2';
+        } else {
+          panel.classList.add('hidden');
+          btn.className = 'px-4 py-2 rounded-lg font-bold text-slate-400 hover:text-slate-200 hover:bg-slate-900 flex items-center gap-2';
+        }
+      });
+
+      if (tabName === 'darkweb') loadDarkWebPastes();
+    }
+
+    // Load Dark Web Feeds
+    async function loadDarkWebPastes() {
+      try {
+        const res = await fetch('/api/darkweb/pastes', {
+          headers: { 'Authorization': 'Bearer ' + jwtToken }
+        });
+        const data = await res.json();
+        if (data.success) {
+          const tbody = document.getElementById('darkwebTable');
+          tbody.innerHTML = data.pastes.map(function(p) {
+            return '<tr class="hover:bg-slate-900/50">' +
+              '<td class="p-3"><span class="px-2 py-0.5 rounded bg-red-500/20 text-red-400 text-[10px] font-bold uppercase">' + p.threatLevel + '</span></td>' +
+              '<td class="p-3 font-mono text-purple-400">' + p.onionSite + '</td>' +
+              '<td class="p-3 font-bold text-white">' + p.title + '<br/><span class="font-normal text-slate-400 font-sans">' + p.content + '</span></td>' +
+              '<td class="p-3 font-mono uppercase text-slate-300">' + p.category + '</td>' +
+              '<td class="p-3 text-slate-500">' + new Date(p.detectedAt).toLocaleTimeString() + '</td>' +
+              '</tr>';
+          }).join('');
+        }
+      } catch (err) {
+        console.error('Failed to load dark web feeds', err);
+      }
+    }
+
+    // Search Dark Web Breach Index
+    async function searchBreachData() {
+      const query = document.getElementById('breachQuery').value.trim();
+      if (!query) return alert('Please enter an identifier to search');
+      
+      try {
+        const res = await fetch('/api/darkweb/search', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + jwtToken },
+          body: JSON.stringify({ query: query })
+        });
+        const data = await res.json();
+        const container = document.getElementById('breachResults');
+        const list = document.getElementById('breachList');
+        
+        container.classList.remove('hidden');
+        if (data.success && data.results.length > 0) {
+          list.innerHTML = data.results.map(function(r) {
+            return '<div class="p-3 bg-purple-900/30 border border-purple-500/40 rounded-xl space-y-1">' +
+              '<div class="font-bold text-purple-300">[' + r.sourceLeak + '] - Type: ' + r.breachType.toUpperCase() + '</div>' +
+              '<div class="text-slate-300">Target: ' + r.targetIdentifier + '</div>' +
+              '<div class="text-slate-400 text-[10px]">Data Sample: ' + r.dataSample + '</div>' +
+              '</div>';
+          }).join('');
+        } else {
+          list.innerHTML = '<div class="text-slate-400">No breach records matched target query "' + query + '".</div>';
+        }
+      } catch (err) {
+        alert('Breach search failed: ' + err.message);
+      }
+    }
+
+    // Copilot Prompt Trigger
+    function sendCopilotPrompt(msg) {
+      document.getElementById('copilotInput').value = msg;
+      sendCopilotUserMessage();
+    }
+
+    // Copilot User Message Send
+    async function sendCopilotUserMessage() {
+      const input = document.getElementById('copilotInput');
+      const msg = input.value.trim();
+      if (!msg) return;
+
+      const chatBox = document.getElementById('copilotChatBox');
+      
+      chatBox.innerHTML += '<div class="p-3 bg-slate-900 border border-slate-800 rounded-xl text-right">' +
+        '<span class="font-bold text-slate-400 font-mono">OFFICER COMMAND:</span>' +
+        '<p class="text-white mt-0.5 font-sans">' + msg + '</p>' +
+        '</div>';
+      input.value = '';
+      chatBox.scrollTop = chatBox.scrollHeight;
+
+      try {
+        const res = await fetch('/api/copilot/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + jwtToken },
+          body: JSON.stringify({ message: msg })
+        });
+        const data = await res.json();
+        
+        if (data.success) {
+          const cop = data.copilot;
+          let suggestionsHTML = '';
+          if (cop.suggestions && cop.suggestions.length > 0) {
+            suggestionsHTML = '<div class="mt-2 flex flex-wrap gap-1">' + cop.suggestions.map(function(s) {
+              return '<button onclick="sendCopilotPrompt(\'' + s.replace(/'/g, "\\'") + '\')" class="px-2 py-0.5 bg-indigo-900/40 hover:bg-indigo-900/80 text-indigo-300 rounded text-[10px]">' + s + '</button>';
+            }).join('') + '</div>';
+          }
+
+          chatBox.innerHTML += '<div class="p-3 bg-indigo-950/40 border border-indigo-500/30 rounded-xl space-y-2">' +
+            '<div class="font-bold text-indigo-400 font-mono">🤖 RAKSHAK COPILOT (' + (cop.actionTaken || 'Reasoned') + '):</div>' +
+            '<div class="text-slate-200 leading-relaxed font-sans prose prose-invert max-w-none">' + cop.answer.replace(/\n/g, '<br/>') + '</div>' +
+            suggestionsHTML +
+            '</div>';
+          chatBox.scrollTop = chatBox.scrollHeight;
+        }
+      } catch (err) {
+        alert('Copilot failed to respond: ' + err.message);
+      }
+    }
+
+    // Run Forensic Mobile Evidence Triage
+    async function runForensicTriage() {
+      const caseNumber = document.getElementById('forensicCase').value.trim();
+      const filename = document.getElementById('forensicFilename').value.trim();
+      const fileContent = document.getElementById('forensicContent').value;
+
+      try {
+        const res = await fetch('/api/forensics/triage', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + jwtToken },
+          body: JSON.stringify({ caseNumber: caseNumber, filename: filename, fileContent: fileContent })
+        });
+        const data = await res.json();
+
+        if (data.success) {
+          const t = data.triage;
+          document.getElementById('forensicOutput').classList.remove('hidden');
+          document.getElementById('forensicMeta').textContent = 'Type: ' + t.evidenceType.toUpperCase() + ' | Lines Analyzed: ' + t.totalLinesAnalyzed;
+          document.getElementById('forensicSummary').textContent = t.summary;
+
+          const list = document.getElementById('forensicList');
+          list.innerHTML = t.flaggedMessages.map(function(m) {
+            const locTag = m.locationMentioned ? '<span class="ml-2 text-[10px] bg-indigo-500/20 text-indigo-300 px-1.5 py-0.5 rounded font-mono uppercase">Geolocated: ' + m.locationMentioned + '</span>' : '';
+            return '<div class="p-3 bg-slate-900 border border-slate-800 rounded-xl flex justify-between items-start gap-4">' +
+              '<div><span class="text-emerald-400 font-bold">[' + m.sender + ']</span><span class="text-slate-300 font-sans ml-1">' + m.message + '</span>' + locTag + '</div>' +
+              '<span class="px-2 py-0.5 bg-amber-500/20 text-amber-300 text-[10px] font-bold uppercase rounded font-mono">' + m.category + ' (Risk: ' + Math.round(m.riskScore * 100) + '%)</span>' +
+              '</div>';
+          }).join('');
+        }
+      } catch (err) {
+        alert('Forensic triage failed: ' + err.message);
+      }
+    }
+
+    // Suspect 360° Profiler Search
+    async function searchSuspectProfile() {
+      const handle = document.getElementById('profilerQuery').value.trim();
+      if (!handle) return alert('Please enter a handle');
+
+      try {
+        const res = await fetch('/api/profiler/suspect?handle=' + encodeURIComponent(handle), {
+          headers: { 'Authorization': 'Bearer ' + jwtToken }
+        });
+        const data = await res.json();
+
+        if (data.success) {
+          const p = data.profile;
+          const card = document.getElementById('profilerCard');
+          card.classList.remove('hidden');
+
+          document.getElementById('profileHandle').textContent = '@' + p.targetHandle;
+          document.getElementById('profileMatches').textContent = p.matchedRecordsCount + ' matched OSINT posts';
+          document.getElementById('profilePlatforms').textContent = p.associatedPlatforms.join(', ').toUpperCase() || 'None detected';
+
+          const badge = document.getElementById('profileRiskBadge');
+          badge.textContent = p.riskLevel + ' RISK LEVEL';
+          badge.className = p.riskLevel === 'HIGH' ? 'px-3 py-1 rounded text-xs font-mono font-bold bg-red-500/20 text-red-400 border border-red-500/30' : 'px-3 py-1 rounded text-xs font-mono font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30';
+
+          const feed = document.getElementById('profileActivityFeed');
+          if (p.recentActivity.length === 0) {
+            feed.innerHTML = '<div class="text-slate-500">No matching social media records found for handle "@' + p.targetHandle + '".</div>';
+          } else {
+            feed.innerHTML = p.recentActivity.map(function(act) {
+              return '<div class="p-3 bg-slate-900 border border-slate-800 rounded-xl space-y-1">' +
+                '<div class="flex justify-between text-slate-400"><span class="font-bold text-cyan-400 font-mono">' + act.source.toUpperCase() + '</span><span>' + new Date(act.publishedAt).toLocaleDateString() + '</span></div>' +
+                '<div class="text-white font-sans">' + act.content + '</div>' +
+                '</div>';
+            }).join('');
+          }
+        }
+      } catch (err) {
+        alert('Suspect profiling failed: ' + err.message);
+      }
+    }
 
     const SURAT_LOCATIONS = {
       'vesu': [72.7758, 21.1352],
