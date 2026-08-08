@@ -1499,6 +1499,26 @@ fastify.get('/', async (request: FastifyRequest, reply: FastifyReply) => {
 
   <!-- ==================== FRONT-END LOGIC & DATA INTEGRATION ==================== -->
   <script>
+    const SURAT_LOCATIONS = {
+      'vesu': [72.7758, 21.1352],
+      'adajan': [72.7933, 21.1925],
+      'varachha': [72.8885, 21.2115],
+      'katargam': [72.8222, 21.2294],
+      'rander': [72.7845, 21.2185],
+      'dumas': [72.7126, 21.0763],
+      'dumas beach': [72.7126, 21.0763],
+      'chowk bazar': [72.8202, 21.2008],
+      'chowk': [72.8202, 21.2008],
+      'limbayat': [72.8612, 21.1714],
+      'udhana': [72.8423, 21.1685],
+      'dindoli': [72.8715, 21.1528],
+      'sarsana': [72.7661, 21.1554],
+      'pal': [72.7812, 21.1812],
+      'pal road': [72.7812, 21.1812],
+      'gopi talav': [72.8315, 21.1945],
+      'vip road': [72.7795, 21.1415]
+    };
+
     let map = null;
     let mapMarkers = [];
     let jwtToken = localStorage.getItem('rakshak_token') || '';
@@ -1671,6 +1691,10 @@ fastify.get('/', async (request: FastifyRequest, reply: FastifyReply) => {
         }).addTo(map);
       }
 
+      // Initial chart skeleton before data arrives
+      drawCategoryChart({});
+      drawPlatformChart({});
+
       // Load static data
       loadStats();
       loadAlerts();
@@ -1711,14 +1735,18 @@ fastify.get('/', async (request: FastifyRequest, reply: FastifyReply) => {
         
         if (!data.success) return;
 
-        const stats = data.stats;
-        document.getElementById('statTotal').textContent = stats.totalCrawled;
-        document.getElementById('statCritical').textContent = stats.criticalAlerts;
-        document.getElementById('statUnresolved').textContent = stats.unresolvedAlerts;
-        document.getElementById('statGeolocated').textContent = Object.keys(SURAT_LOCATIONS).length; // or count parsed
+        const stats = data.stats || {};
+        const totalCrawled = stats.totalCrawled || 0;
+        const criticalAlerts = stats.criticalAlerts || 0;
+        const unresolvedAlerts = stats.unresolvedAlerts || 0;
+
+        document.getElementById('statTotal').textContent = totalCrawled;
+        document.getElementById('statCritical').textContent = criticalAlerts;
+        document.getElementById('statUnresolved').textContent = unresolvedAlerts;
+        document.getElementById('statGeolocated').textContent = Object.keys(SURAT_LOCATIONS).length;
 
         // Emergency flashing alert banner trigger
-        if (stats.criticalAlerts > 0) {
+        if (criticalAlerts > 0) {
           document.getElementById('emergencyTicker').classList.remove('hidden');
           document.getElementById('statCriticalPulse').classList.remove('hidden');
         } else {
@@ -1727,8 +1755,8 @@ fastify.get('/', async (request: FastifyRequest, reply: FastifyReply) => {
         }
 
         // Draw Category and Platform charts
-        drawCategoryChart(stats.categoryBreakdown);
-        drawPlatformChart(stats.platformBreakdown);
+        drawCategoryChart(stats.categoryBreakdown || {});
+        drawPlatformChart(stats.platformBreakdown || {});
 
       } catch (err) {
         console.error('Failed to load stats', err);
@@ -1737,9 +1765,11 @@ fastify.get('/', async (request: FastifyRequest, reply: FastifyReply) => {
 
     // Render category bar chart
     function drawCategoryChart(breakdown) {
-      const ctx = document.getElementById('categoryChart').getContext('2d');
+      const canvas = document.getElementById('categoryChart');
+      if (!canvas) return;
+      const ctx = canvas.getContext('2d');
       const labels = ['violence', 'hate_speech', 'riot', 'road_safety', 'disaster', 'cyber_crime'];
-      const data = labels.map(l => breakdown[l] || 0);
+      const data = labels.map(l => breakdown && breakdown[l] ? breakdown[l] : 0);
 
       const dataset = {
         labels: ['Violence', 'Hate Speech', 'Riot/Protest', 'Road Safety', 'Disaster/Fire', 'Cyber Crime'],
@@ -1757,7 +1787,8 @@ fastify.get('/', async (request: FastifyRequest, reply: FastifyReply) => {
           borderColor: [
             '#ef4444', '#f43f5e', '#f97316', '#eab308', '#a855f7', '#06b6d4'
           ],
-          borderWidth: 1.5
+          borderWidth: 1.5,
+          borderRadius: 4
         }]
       };
 
@@ -1773,8 +1804,10 @@ fastify.get('/', async (request: FastifyRequest, reply: FastifyReply) => {
             maintainAspectRatio: false,
             scales: {
               y: { 
+                beginAtZero: true,
+                suggestedMax: 5,
                 grid: { color: 'rgba(255,255,255,0.05)' }, 
-                ticks: { color: '#94a3b8', font: { family: 'JetBrains Mono', size: 9 } } 
+                ticks: { color: '#94a3b8', stepSize: 1, precision: 0, font: { family: 'JetBrains Mono', size: 9 } } 
               },
               x: { 
                 grid: { display: false }, 
@@ -1791,28 +1824,46 @@ fastify.get('/', async (request: FastifyRequest, reply: FastifyReply) => {
 
     // Render platform doughnut chart
     function drawPlatformChart(breakdown) {
-      const ctx = document.getElementById('platformChart').getContext('2d');
+      const canvas = document.getElementById('platformChart');
+      if (!canvas) return;
+      const ctx = canvas.getContext('2d');
       const labels = ['reddit', 'twitter', 'telegram', 'instagram', 'youtube'];
-      const data = labels.map(l => breakdown[l] || 0);
+      const rawData = labels.map(l => breakdown && breakdown[l] ? breakdown[l] : 0);
+      const total = rawData.reduce((a, b) => a + b, 0);
 
-      const dataset = {
-        labels: ['Reddit', 'X/Twitter', 'Telegram', 'Instagram', 'YouTube'],
-        datasets: [{
-          data,
-          backgroundColor: [
-            'rgba(249, 115, 22, 0.55)', // Orange
-            'rgba(255, 255, 255, 0.55)', // White
-            'rgba(56, 189, 248, 0.55)', // Sky
-            'rgba(236, 72, 153, 0.55)', // Pink
-            'rgba(239, 68, 68, 0.55)'   // Red
-          ],
-          borderColor: '#1e293b',
-          borderWidth: 2
-        }]
-      };
+      let dataset;
+      if (total === 0) {
+        // Fallback stylish empty ring when no data crawled yet
+        dataset = {
+          labels: ['Awaiting Crawl Feed'],
+          datasets: [{
+            data: [1],
+            backgroundColor: ['rgba(148, 163, 184, 0.12)'],
+            borderColor: 'rgba(255, 255, 255, 0.05)',
+            borderWidth: 2
+          }]
+        };
+      } else {
+        dataset = {
+          labels: ['Reddit', 'X/Twitter', 'Telegram', 'Instagram', 'YouTube'],
+          datasets: [{
+            data: rawData,
+            backgroundColor: [
+              'rgba(249, 115, 22, 0.65)', // Orange
+              'rgba(255, 255, 255, 0.65)', // White
+              'rgba(56, 189, 248, 0.65)', // Sky
+              'rgba(236, 72, 153, 0.65)', // Pink
+              'rgba(239, 68, 68, 0.65)'   // Red
+            ],
+            borderColor: '#0f172a',
+            borderWidth: 2
+          }]
+        };
+      }
 
       if (platformChart) {
         platformChart.data = dataset;
+        platformChart.options.plugins.tooltip = { enabled: total > 0 };
         platformChart.update();
       } else {
         platformChart = new Chart(ctx, {
@@ -1821,10 +1872,14 @@ fastify.get('/', async (request: FastifyRequest, reply: FastifyReply) => {
           options: {
             responsive: true,
             maintainAspectRatio: false,
+            cutout: '70%',
             plugins: {
               legend: { 
                 position: 'right',
-                labels: { color: '#94a3b8', font: { size: 9 } } 
+                labels: { color: '#94a3b8', font: { size: 9, family: 'Outfit' } } 
+              },
+              tooltip: {
+                enabled: total > 0
               }
             }
           }

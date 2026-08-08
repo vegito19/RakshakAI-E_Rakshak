@@ -79,15 +79,12 @@ export class RedditScraper {
         Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3, 4, 5] });
       });
 
-      // Navigation & Profile/Target Switching Delays (120 to 300 seconds spacing)
+      // Quick safe spacing between navigation if needed (max 500ms)
       const now = Date.now();
       if (this.lastNavigationTime > 0) {
         const elapsed = (now - this.lastNavigationTime) / 1000;
-        const requiredDelay = Math.random() * (300 - 120) + 120; // 120 to 300 seconds
-        if (elapsed < requiredDelay) {
-          const waitTime = requiredDelay - elapsed;
-          logger.info(`Spacing target switching. Waiting for ${waitTime.toFixed(2)} seconds...`, 'RedditScraper');
-          await page.waitForTimeout(waitTime * 1000);
+        if (elapsed < 0.5) {
+          await page.waitForTimeout(500);
         }
       }
       this.lastNavigationTime = Date.now();
@@ -96,29 +93,24 @@ export class RedditScraper {
       logger.debug(`Navigating to target Reddit URL: ${url}`, 'RedditScraper');
       
       // Navigate and wait for DOM load
-      const response = await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 45000 });
+      const response = await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
       if (response && (response.status() === 403 || response.status() === 429)) {
-        logger.warn(`Encountered HTTP ${response.status()} block. Circuit breaker active: halting for 1800 seconds...`, 'RedditScraper');
-        await page.waitForTimeout(1800 * 1000);
         throw new Error(`Reddit security blocked request with status: ${response.status()}`);
       }
 
       // Check for "Try Again Later" rate limit modal/content
-      const bodyText = await page.innerText('body');
+      const bodyText = await page.innerText('body').catch(() => '');
       if (bodyText.includes('Try Again Later') || bodyText.includes('try again later')) {
-        logger.warn('Encountered "Try Again Later" rate limit. Circuit breaker active: halting for 1800 seconds...', 'RedditScraper');
-        await page.waitForTimeout(1800 * 1000);
         throw new Error('Reddit rate limit encountered: Try Again Later');
       }
 
-      // Wait a few seconds for lazy loaded items and GraphQL API requests to settle
-      logger.debug('Waiting for dynamic feed content to render...', 'RedditScraper');
-      await page.waitForTimeout(8000);
+      // Wait for shreddit-post elements to render
+      await page.waitForSelector('shreddit-post', { timeout: 10000 }).catch(() => {
+        logger.debug('Timeout waiting for shreddit-post elements to render.', 'RedditScraper');
+      });
 
-      const pageTitle = await page.title();
+      const pageTitle = await page.title().catch(() => '');
       if (pageTitle.includes('Blocked') || pageTitle.includes('Access Denied')) {
-        logger.warn('Encountered block in page title. Circuit breaker active: halting for 1800 seconds...', 'RedditScraper');
-        await page.waitForTimeout(1800 * 1000);
         throw new Error(`Reddit bot detection blocked page access. Title: ${pageTitle}`);
       }
 
@@ -129,30 +121,6 @@ export class RedditScraper {
       for (const element of postElements) {
         if (items.length >= limit) break;
         try {
-          // Human Behavioral Emulation: Micro-scroll (100-300px) with randomized offsets
-          await page.evaluate(() => window.scrollBy(0, Math.floor(Math.random() * 200) + 100));
-          // Action-Level Delay after scroll (4.5 to 9.2 seconds)
-          await page.waitForTimeout((Math.random() * (9.2 - 4.5) + 4.5) * 1000);
-
-          // Human Behavioral Emulation: Smooth mouse movement to the element's bounding box
-          const box = await element.boundingBox();
-          if (box) {
-            const steps = 6;
-            const startX = Math.random() * 1280;
-            const startY = Math.random() * 1000;
-            const targetX = box.x + box.width / 2 + (Math.random() * 30 - 15);
-            const targetY = box.y + box.height / 2 + (Math.random() * 30 - 15);
-            for (let i = 1; i <= steps; i++) {
-              const x = startX + (targetX - startX) * (i / steps);
-              const y = startY + (targetY - startY) * (i / steps);
-              await page.mouse.move(x, y);
-              await page.waitForTimeout(20 + Math.random() * 30);
-            }
-          }
-
-          // Human Behavioral Emulation: Linger over post element prior to extracting (1.5 to 3.5 seconds)
-          await page.waitForTimeout((Math.random() * (3.5 - 1.5) + 1.5) * 1000);
-
           const id = await element.getAttribute('id');
           if (!id) {
             logger.debug('Skipping element: missing id attribute.', 'RedditScraper');
@@ -185,8 +153,8 @@ export class RedditScraper {
 
           const subredditName = await element.getAttribute('subreddit-name') || subreddit;
 
-          const upvotes = parseInt(scoreStr, 10);
-          const commentsCount = parseInt(commentCountStr, 10);
+          const upvotes = parseInt(scoreStr, 10) || 0;
+          const commentsCount = parseInt(commentCountStr, 10) || 0;
 
           // Detect locked / over18 states from classes and attributes
           const classAttr = await element.getAttribute('class') || '';
@@ -232,9 +200,6 @@ export class RedditScraper {
           };
 
           items.push(rawItem);
-
-          // Action-Level Delay between post extractions (4.5 to 9.2 seconds)
-          await page.waitForTimeout((Math.random() * (9.2 - 4.5) + 4.5) * 1000);
         } catch (postError) {
           logger.error(`Error parsing individual post inside r/${subreddit}`, postError as Error, 'RedditScraper');
         }
@@ -265,8 +230,7 @@ async function fetchRedditComments(postUrl: string): Promise<any[]> {
       }
     });
     if (res.status === 429 || res.status === 403) {
-      logger.warn(`fetchRedditComments: HTTP ${res.status}. Halting for 1800 seconds...`, 'RedditScraper');
-      await new Promise(resolve => setTimeout(resolve, 1800 * 1000));
+      logger.warn(`fetchRedditComments: HTTP ${res.status}`, 'RedditScraper');
       return [];
     }
     if (!res.ok) return [];

@@ -7,9 +7,9 @@ import { proxyRotator } from './proxyRotator';
 
 // Keywords for filtering
 const SURAT_KEYWORDS = [
-  "surat", "gujarat", "dumas", "vesu", "adajan", "varachha", "katargam", 
-  "rander", "smc", "rath yatra", "gopi talav", "chowk bazar", "chhakda", 
-  "locho", "ghari", "cold coco", "vip road", "surati", "gujaratis", 
+  "surat", "gujarat", "dumas", "vesu", "adajan", "varachha", "katargam",
+  "rander", "smc", "rath yatra", "gopi talav", "chowk bazar", "chhakda",
+  "locho", "ghari", "cold coco", "vip road", "surati", "gujaratis",
   "sarsana", "dindoli", "limbayat", "udhana", "palanpur", "bhatha",
   "police", "traffic", "accident", "emergency", "flood", "rain", "road"
 ];
@@ -71,12 +71,12 @@ export class InstagramScraper {
     try {
       logger.info(`Starting local Instagram scrape: mode=${mode}, target=${target}, limit=${limit}`, 'InstagramScraper');
       const browser = await this.getBrowser();
-      
+
       const contextOptions: any = {
         userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
         locale: 'en-US'
       };
-      
+
       const proxyConfig = proxyRotator.getNextProxy();
       if (proxyConfig) {
         contextOptions.proxy = proxyConfig;
@@ -200,7 +200,7 @@ export class InstagramScraper {
       logger.error(`Instagram scraper failed`, err as Error, 'InstagramScraper');
     } finally {
       if (page) {
-        await page.close().catch(() => {});
+        await page.close().catch(() => { });
       }
     }
     return items;
