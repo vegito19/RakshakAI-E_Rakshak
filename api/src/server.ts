@@ -1506,6 +1506,30 @@ fastify.get('/', async (request: FastifyRequest, reply: FastifyReply) => {
     let platformChart = null;
     let officersList = [];
 
+    const SURAT_LOCATIONS = {
+      'vesu': [72.7758, 21.1352],
+      'adajan': [72.7933, 21.1925],
+      'varachha': [72.8885, 21.2115],
+      'katargam': [72.8222, 21.2294],
+      'rander': [72.7845, 21.2185],
+      'dumas': [72.7126, 21.0763],
+      'dumas beach': [72.7126, 21.0763],
+      'chowk bazar': [72.8202, 21.2008],
+      'chowk': [72.8202, 21.2008],
+      'limbayat': [72.8612, 21.1714],
+      'udhana': [72.8423, 21.1685],
+      'dindoli': [72.8715, 21.1528],
+      'sarsana': [72.7661, 21.1554],
+      'pal': [72.7812, 21.1812],
+      'pal road': [72.7812, 21.1812],
+      'gopi talav': [72.8315, 21.1945],
+      'vip road': [72.7795, 21.1415],
+      'lalgate': [72.8225, 21.1975],
+      'parle point': [72.7995, 21.1712],
+      'bhatar': [72.8095, 21.1585],
+      'sagarampura': [72.8245, 21.1885]
+    };
+
     // Setup visual screens
     if (jwtToken) {
       document.getElementById('loginGate').classList.add('hidden');
@@ -1738,11 +1762,11 @@ fastify.get('/', async (request: FastifyRequest, reply: FastifyReply) => {
     // Render category bar chart
     function drawCategoryChart(breakdown) {
       const ctx = document.getElementById('categoryChart').getContext('2d');
-      const labels = ['violence', 'hate_speech', 'riot', 'road_safety', 'disaster', 'cyber_crime'];
+      const labels = ['violence', 'hate_speech', 'riot', 'road_safety', 'disaster', 'cyber_crime', 'suspicious_activity', 'contraband', 'harassment'];
       const data = labels.map(l => breakdown[l] || 0);
 
       const dataset = {
-        labels: ['Violence', 'Hate Speech', 'Riot/Protest', 'Road Safety', 'Disaster/Fire', 'Cyber Crime'],
+        labels: ['Violence', 'Hate Speech', 'Riot/Protest', 'Road Safety', 'Disaster/Fire', 'Cyber Crime', 'Suspicious Act', 'Contraband/Drugs', 'Harassment'],
         datasets: [{
           label: 'Incidents Count',
           data,
@@ -1752,10 +1776,13 @@ fastify.get('/', async (request: FastifyRequest, reply: FastifyReply) => {
             'rgba(249, 115, 22, 0.45)', // Orange
             'rgba(234, 179, 8, 0.45)',  // Yellow
             'rgba(168, 85, 247, 0.45)', // Purple
-            'rgba(6, 182, 212, 0.45)'   // Cyan
+            'rgba(6, 182, 212, 0.45)',   // Cyan
+            'rgba(148, 163, 184, 0.45)', // Slate
+            'rgba(16, 185, 129, 0.45)',  // Emerald
+            'rgba(236, 72, 153, 0.45)'   // Pink
           ],
           borderColor: [
-            '#ef4444', '#f43f5e', '#f97316', '#eab308', '#a855f7', '#06b6d4'
+            '#ef4444', '#f43f5e', '#f97316', '#eab308', '#a855f7', '#06b6d4', '#94a3b8', '#10b981', '#ec4899'
           ],
           borderWidth: 1.5
         }]
@@ -1774,7 +1801,7 @@ fastify.get('/', async (request: FastifyRequest, reply: FastifyReply) => {
             scales: {
               y: { 
                 grid: { color: 'rgba(255,255,255,0.05)' }, 
-                ticks: { color: '#94a3b8', font: { family: 'JetBrains Mono', size: 9 } } 
+                ticks: { color: '#94a3b8', font: { family: 'Outfit', size: 9 } } 
               },
               x: { 
                 grid: { display: false }, 
@@ -1792,11 +1819,11 @@ fastify.get('/', async (request: FastifyRequest, reply: FastifyReply) => {
     // Render platform doughnut chart
     function drawPlatformChart(breakdown) {
       const ctx = document.getElementById('platformChart').getContext('2d');
-      const labels = ['reddit', 'twitter', 'telegram', 'instagram', 'youtube'];
+      const labels = ['reddit', 'twitter', 'telegram', 'instagram', 'youtube', 'facebook', 'news'];
       const data = labels.map(l => breakdown[l] || 0);
 
       const dataset = {
-        labels: ['Reddit', 'X/Twitter', 'Telegram', 'Instagram', 'YouTube'],
+        labels: ['Reddit', 'X/Twitter', 'Telegram', 'Instagram', 'YouTube', 'Facebook', 'News/Web'],
         datasets: [{
           data,
           backgroundColor: [
@@ -1804,7 +1831,9 @@ fastify.get('/', async (request: FastifyRequest, reply: FastifyReply) => {
             'rgba(255, 255, 255, 0.55)', // White
             'rgba(56, 189, 248, 0.55)', // Sky
             'rgba(236, 72, 153, 0.55)', // Pink
-            'rgba(239, 68, 68, 0.55)'   // Red
+            'rgba(239, 68, 68, 0.55)',   // Red
+            'rgba(59, 130, 246, 0.55)',  // Blue
+            'rgba(16, 185, 129, 0.55)'   // Emerald
           ],
           borderColor: '#1e293b',
           borderWidth: 2
@@ -1899,7 +1928,17 @@ fastify.get('/', async (request: FastifyRequest, reply: FastifyReply) => {
               
               <div>
                 <h4 class="text-xs font-bold text-white mb-0.5">@\${alert.post.author} (\${alert.post.source})</h4>
-                <p class="text-xs text-slate-350 leading-relaxed font-sans">\${alert.post.translatedContent}</p>
+                <p class="text-xs text-slate-350 leading-relaxed font-sans mt-1">\${alert.post.translatedContent}</p>
+                <div class="mt-2 p-2 bg-indigo-950/40 rounded border border-indigo-500/20 flex flex-col gap-1">
+                  <div class="flex items-center gap-1.5">
+                    <span class="relative flex h-2 w-2">
+                      <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-indigo-400 opacity-75"></span>
+                      <span class="relative inline-flex rounded-full h-2 w-2 bg-indigo-500"></span>
+                    </span>
+                    <span class="text-[9px] uppercase font-bold text-indigo-400 tracking-wider">Rakshak AI Insight</span>
+                  </div>
+                  <span class="text-xs text-indigo-200/80 leading-snug font-mono">Flagged as <strong>\${alert.post.threatCategory.toUpperCase()}</strong> with \${(alert.post.threatScore * 100).toFixed(0)}% confidence. Content matches internal threat heuristics.</span>
+                </div>
               </div>
 
               <!-- Case Assignment control -->

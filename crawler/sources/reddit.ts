@@ -79,11 +79,11 @@ export class RedditScraper {
         Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3, 4, 5] });
       });
 
-      // Navigation & Profile/Target Switching Delays (120 to 300 seconds spacing)
+      // Navigation & Profile/Target Switching Delays (5 to 12 seconds spacing)
       const now = Date.now();
       if (this.lastNavigationTime > 0) {
         const elapsed = (now - this.lastNavigationTime) / 1000;
-        const requiredDelay = Math.random() * (300 - 120) + 120; // 120 to 300 seconds
+        const requiredDelay = Math.random() * (12 - 5) + 5; // 5 to 12 seconds
         if (elapsed < requiredDelay) {
           const waitTime = requiredDelay - elapsed;
           logger.info(`Spacing target switching. Waiting for ${waitTime.toFixed(2)} seconds...`, 'RedditScraper');
@@ -131,8 +131,8 @@ export class RedditScraper {
         try {
           // Human Behavioral Emulation: Micro-scroll (100-300px) with randomized offsets
           await page.evaluate(() => window.scrollBy(0, Math.floor(Math.random() * 200) + 100));
-          // Action-Level Delay after scroll (4.5 to 9.2 seconds)
-          await page.waitForTimeout((Math.random() * (9.2 - 4.5) + 4.5) * 1000);
+          // Action-Level Delay after scroll (1.5 to 3.5 seconds)
+          await page.waitForTimeout((Math.random() * (3.5 - 1.5) + 1.5) * 1000);
 
           // Human Behavioral Emulation: Smooth mouse movement to the element's bounding box
           const box = await element.boundingBox();
@@ -233,8 +233,8 @@ export class RedditScraper {
 
           items.push(rawItem);
 
-          // Action-Level Delay between post extractions (4.5 to 9.2 seconds)
-          await page.waitForTimeout((Math.random() * (9.2 - 4.5) + 4.5) * 1000);
+          // Action-Level Delay between post extractions (1.5 to 3.5 seconds)
+          await page.waitForTimeout((Math.random() * (3.5 - 1.5) + 1.5) * 1000);
         } catch (postError) {
           logger.error(`Error parsing individual post inside r/${subreddit}`, postError as Error, 'RedditScraper');
         }

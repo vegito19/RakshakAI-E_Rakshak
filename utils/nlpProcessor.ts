@@ -151,7 +151,7 @@ Output ONLY the raw JSON string. Do not wrap it in markdown code blocks like \`\
     ? parsed.threatLabel
     : 'none';
 
-  const threatCategory: ThreatCategory = ['violence', 'hate_speech', 'riot', 'road_safety', 'disaster', 'cyber_crime', 'none'].includes(parsed.threatCategory)
+  const threatCategory: ThreatCategory = ['violence', 'hate_speech', 'riot', 'road_safety', 'disaster', 'cyber_crime', 'suspicious_activity', 'contraband', 'harassment', 'none'].includes(parsed.threatCategory)
     ? parsed.threatCategory
     : 'none';
 
@@ -205,7 +205,7 @@ function analyzeWithRules(title: string, content: string): AnalyzedOutput {
 
   // Let's perform a simple translation mapping for well-known mock posts to keep it extremely polished
   if (originalLanguage === 'hindi' || originalLanguage === 'hinglish') {
-    if (fullText.includes('protest') || fullText.includes('gathering')) {
+    if (fullText.includes('protest') || fullText.includes('strike') || (fullText.includes('gathering') && fullText.includes('illegal'))) {
       translatedContent = "A public gathering and protest by diamond workers is going on at Vesu VIP Road. Local transport is completely blocked. Police force deployed. Situation is tense but under control. Avoid VIP road!";
     } else if (fullText.includes('accident') || fullText.includes('takkar')) {
       translatedContent = "There has been a collision between a bike and a car on Adajan Pal Road. Heated arguments are ongoing between local residents. A police team has been dispatched.";
@@ -228,31 +228,43 @@ function analyzeWithRules(title: string, content: string): AnalyzedOutput {
   let threatScore = 0.05;
   let threatCategory: ThreatCategory = 'none';
   
-  const riotWords = ['protest', 'strike', 'riot', 'mob', 'pattharbaazi', 'gathering', 'protestors', 'blockade', 'chakka jam', 'dharna', 'bheed', 'morcho', 'દેખાવો', 'વિરોધ'];
+  const riotWords = ['protest', 'strike', 'riot', 'mob', 'pattharbaazi', 'protestors', 'blockade', 'chakka jam', 'dharna', 'bheed', 'morcho', 'દેખાવો', 'વિરોધ'];
   const violenceWords = ['clash', 'fight', 'attack', 'murder', 'threaten', 'kill', 'weapons', 'knife', 'gun', 'chaku', 'maar', 'pitai', 'hathyari'];
   const disasterWords = ['waterlogging', 'flood', 'heavy rain', 'rain updates', 'fire', 'blast', 'explosion', 'short circuit', 'collapse', 'aag', 'ભરતી', 'પૂર', 'વરસાદ'];
   const roadSafetyWords = ['accident', 'crash', 'traffic jam', 'bike racing', 'stunt', 'speeding', 'overturn', 'collision', 'takkar', 'અકસ્માત', 'ટ્રાફિક'];
   const cyberCrimeWords = ['scam', 'fraud', 'hacker', 'phishing', 'fake link', 'cheating', 'chori', 'loot'];
   const hateSpeechWords = ['hate', 'abuse', 'gali', 'target', 'communal', 'tension', 'derogatory', 'boycott'];
+  const suspiciousActivityWords = ['suspicious', 'recce', 'loitering', 'casing', 'shakkar', 'shak', 'sandighda'];
+  const contrabandWords = ['drugs', 'ganja', 'charas', 'weed', 'cocaine', 'smuggling', 'contraband', 'daru', 'liquor'];
+  const harassmentWords = ['harass', 'stalk', 'tease', 'eve-teasing', 'bullying', 'threatening', 'harassment'];
 
-  if (riotWords.some(w => fullText.includes(w))) {
+  if (riotWords.some(w => hasWord(fullText, w))) {
     threatScore = 0.78;
     threatCategory = 'riot';
-  } else if (violenceWords.some(w => fullText.includes(w))) {
+  } else if (violenceWords.some(w => hasWord(fullText, w))) {
     threatScore = 0.85;
     threatCategory = 'violence';
-  } else if (disasterWords.some(w => fullText.includes(w))) {
-    threatScore = fullText.includes('fire') || fullText.includes('blast') ? 0.90 : 0.60;
+  } else if (disasterWords.some(w => hasWord(fullText, w))) {
+    threatScore = hasWord(fullText, 'fire') || hasWord(fullText, 'blast') ? 0.90 : 0.60;
     threatCategory = 'disaster';
-  } else if (roadSafetyWords.some(w => fullText.includes(w))) {
-    threatScore = fullText.includes('accident') ? 0.68 : 0.35;
+  } else if (roadSafetyWords.some(w => hasWord(fullText, w))) {
+    threatScore = hasWord(fullText, 'accident') ? 0.68 : 0.35;
     threatCategory = 'road_safety';
-  } else if (cyberCrimeWords.some(w => fullText.includes(w))) {
+  } else if (cyberCrimeWords.some(w => hasWord(fullText, w))) {
     threatScore = 0.55;
     threatCategory = 'cyber_crime';
-  } else if (hateSpeechWords.some(w => fullText.includes(w))) {
+  } else if (hateSpeechWords.some(w => hasWord(fullText, w))) {
     threatScore = 0.80;
     threatCategory = 'hate_speech';
+  } else if (suspiciousActivityWords.some(w => hasWord(fullText, w))) {
+    threatScore = 0.40;
+    threatCategory = 'suspicious_activity';
+  } else if (contrabandWords.some(w => hasWord(fullText, w))) {
+    threatScore = 0.65;
+    threatCategory = 'contraband';
+  } else if (harassmentWords.some(w => hasWord(fullText, w))) {
+    threatScore = 0.70;
+    threatCategory = 'harassment';
   }
 
   let threatLabel: ThreatLabel = 'none';
@@ -299,4 +311,16 @@ function analyzeWithRules(title: string, content: string): AnalyzedOutput {
       persons: []
     }
   };
+}
+
+/**
+ * Checks if a specific keyword matches in the text, ensuring word boundary rules
+ * for English alphanumeric strings, while falling back to includes for Hindi/Gujarati.
+ */
+function hasWord(text: string, word: string): boolean {
+  if (/^[a-zA-Z0-9_-]+$/.test(word)) {
+    const regex = new RegExp(`\\b${word}\\b`, 'i');
+    return regex.test(text);
+  }
+  return text.includes(word);
 }
