@@ -2,11 +2,17 @@ import Fastify, { FastifyInstance, FastifyReply, FastifyRequest, FastifyError } 
 import cors from '@fastify/cors';
 import bcrypt from 'bcrypt';
 import * as dotenv from 'dotenv';
+import * as fs from 'fs';
+import * as path from 'path';
+import { exec } from 'child_process';
+import { promisify } from 'util';
 import { logger } from '../../utils/logger';
 import { pool, initializeDatabase } from '../../database/connection';
 import { registerSchema, loginSchema } from '../../validation/auth';
-import { signToken } from '../../auth/jwt';
+import { signToken, verifyToken } from '../../auth/jwt';
 import { authenticate } from '../../auth/middleware';
+
+const execAsync = promisify(exec);
 import { ApiResponse } from '../../shared-types/api';
 import { User, UserJWTPayload } from '../../shared-types/user';
 
@@ -22,6 +28,14 @@ import { RawCrawledItem, SocialSource } from '../../shared-types/crawler';
 // Import local NLP and Fallback utilities
 import { analyzePost, computeContentHash, SURAT_LOCATIONS, AnalyzedOutput } from '../../utils/nlpProcessor';
 import { generateMockOSINT } from '../../utils/fallbackGenerator';
+import fastifyMultipart from '@fastify/multipart';
+import { AgentInvestigator } from '../../utils/agentInvestigator';
+import { darkWebMonitor } from '../../utils/darkWebMonitor';
+import { cryptoForensics } from '../../utils/cryptoForensics';
+import { otpAuthService } from '../../utils/otpAuthService';
+import { forensicsTriage } from '../../utils/forensicsTriage';
+import { realAdbBridge } from '../../utils/realAdbBridge';
+import { cdrAnalyzer } from '../../utils/cdrAnalyzer';
 
 dotenv.config();
 
@@ -50,6 +64,13 @@ interface CrawlerExtractDto {
 
 const fastify: FastifyInstance = Fastify({
   logger: false, // Disabling fastify default logger to use project's custom logger
+});
+
+// Register multipart for real forensics and CDR file uploads
+fastify.register(fastifyMultipart, {
+  limits: {
+    fileSize: 50 * 1024 * 1024, // 50MB max file size
+  }
 });
 
 // Setup global error handler
@@ -199,18 +220,12 @@ async function seedDatabase(): Promise<void> {
     
     logger.info('Demo users checked/seeded successfully.', 'DatabaseSeeding');
 
-    // 2. Seed Raw Posts, Processed Posts, and Alerts if empty
-    logger.info('Purging outdated mock posts to refresh external resource links...', 'DatabaseSeeding');
-    await client.query(`
-      DELETE FROM raw_posts 
-      WHERE id LIKE 're_%' OR id LIKE 'tw_%' OR id LIKE 'te_%' OR id LIKE 'in_%' OR id LIKE 'yo_%' OR id LIKE 'fa_%';
-    `);
-
+    // 2. Check if raw posts exist, seed only if empty (never purge existing crawled items)
     const postCountRes = await client.query('SELECT COUNT(*) FROM raw_posts;');
     const postCount = parseInt(postCountRes.rows[0].count, 10);
 
     if (postCount === 0) {
-      logger.info('Raw posts table is empty. Pre-seeding realistic OSINT data for Surat command map...', 'DatabaseSeeding');
+      logger.info('Raw posts table is empty. Pre-seeding baseline OSINT intelligence for Surat command map...', 'DatabaseSeeding');
       
       const seedRawItems = [
         ...generateMockOSINT('reddit', 'search', 'protest', 3),
@@ -349,9 +364,11 @@ fastify.post(
 
       logger.info(`Successfully registered user: ${username} with role: ${finalRole}`, 'AuthHandler');
 
-      const response: ApiResponse<{ user: User; token: string }> = {
+      const response = {
         success: true,
         message: 'Registration successful.',
+        token,
+        user,
         data: { user, token },
       };
 
@@ -448,9 +465,11 @@ fastify.post(
 
       logger.info(`User logged in successfully: ${username}`, 'AuthHandler');
 
-      const response: ApiResponse<{ user: User; token: string }> = {
+      const response = {
         success: true,
         message: 'Login successful.',
+        token,
+        user,
         data: { user, token },
       };
 
@@ -487,6 +506,262 @@ fastify.get(
     reply.status(200).send(response);
   }
 );
+
+// Route aliases for /api/auth prefix
+fastify.post('/api/auth/register', { schema: registerSchema }, async (req, reply) => {
+  return fastify.inject({ method: 'POST', url: '/auth/register', payload: req.body as any }).then(res => {
+    reply.status(res.statusCode).headers(res.headers).send(res.body);
+  });
+});
+fastify.post('/api/auth/login', { schema: loginSchema }, async (req, reply) => {
+  return fastify.inject({ method: 'POST', url: '/auth/login', payload: req.body as any }).then(res => {
+    reply.status(res.statusCode).headers(res.headers).send(res.body);
+  });
+});
+fastify.get('/api/auth/me', { preHandler: [authenticate] }, async (req, reply) => {
+  reply.send({ success: true, data: { user: req.user! } });
+});
+
+/**
+ * Send 6-Digit Email OTP for Login, Registration, or Password Reset
+ */
+fastify.post('/api/auth/send-otp', async (request: FastifyRequest, reply: FastifyReply) => {
+  try {
+    const { email, purpose = 'LOGIN' } = (request.body as any) || {};
+    if (!email || !email.includes('@')) {
+      reply.status(400).send({ success: false, error: 'Valid official email address is required.' });
+      return;
+    }
+
+    const normPurpose = (purpose.toUpperCase() === 'REGISTER' ? 'REGISTER' : (purpose.toUpperCase() === 'FORGOT_PASSWORD' ? 'FORGOT_PASSWORD' : 'LOGIN')) as any;
+    
+    // Check user existence if logging in or resetting password
+    if (normPurpose === 'FORGOT_PASSWORD' || normPurpose === 'LOGIN') {
+      const userRes = await pool.query('SELECT id, username, email FROM users WHERE LOWER(email) = LOWER($1) OR LOWER(username) = LOWER($1);', [email.trim()]);
+      if (userRes.rowCount === 0 && normPurpose === 'FORGOT_PASSWORD') {
+        reply.status(404).send({ success: false, error: `No registered officer profile found with email: ${email}` });
+        return;
+      }
+    }
+
+    const result = await otpAuthService.generateAndSendOtp(email, normPurpose);
+    reply.send(result);
+  } catch (err) {
+    logger.error('Error generating security OTP', err as Error, 'APIServer');
+    reply.status(500).send({ success: false, error: 'Failed to dispatch security OTP.' });
+  }
+});
+
+/**
+ * Verify OTP and Authenticate User (Passwordless / 2FA Login)
+ */
+fastify.post('/api/auth/verify-otp-login', async (request: FastifyRequest, reply: FastifyReply) => {
+  try {
+    const { email, otp, password } = (request.body as any) || {};
+    if (!email || !otp) {
+      reply.status(400).send({ success: false, error: 'Email and 6-digit OTP code are required.' });
+      return;
+    }
+
+    const cleanEmail = email.trim().toLowerCase();
+    const verification = otpAuthService.verifyOtp(cleanEmail, otp, 'LOGIN');
+    if (!verification.valid) {
+      reply.status(401).send({ success: false, error: verification.error });
+      return;
+    }
+
+    // Lookup user in PostgreSQL
+    let userRes = await pool.query('SELECT id, username, email, password_hash, role, created_at FROM users WHERE LOWER(email) = LOWER($1) OR LOWER(username) = LOWER($1);', [cleanEmail]);
+    
+    // If user doesn't exist, create an active officer profile for this email
+    if (userRes.rowCount === 0) {
+      const fallbackUsername = cleanEmail.split('@')[0].replace(/[^a-zA-Z0-9_]/g, '_');
+      const hashedPass = await bcrypt.hash(password || 'Rakshak@2026', 10);
+      const insertRes = await pool.query(`
+        INSERT INTO users (username, email, password_hash, role)
+        VALUES ($1, $2, $3, 'officer')
+        RETURNING id, username, email, role, created_at;
+      `, [fallbackUsername, cleanEmail, hashedPass]);
+      userRes = insertRes;
+    } else if (password) {
+      // If password was also provided, verify it (2FA mode)
+      const dbUser = userRes.rows[0];
+      const isPassValid = await bcrypt.compare(password, dbUser.password_hash);
+      if (!isPassValid) {
+        reply.status(401).send({ success: false, error: 'Incorrect badge password.' });
+        return;
+      }
+    }
+
+    const dbUser = userRes.rows[0];
+    const user: User = {
+      id: dbUser.id,
+      username: dbUser.username,
+      email: dbUser.email,
+      role: dbUser.role,
+      createdAt: new Date(dbUser.created_at).toISOString(),
+    };
+
+    const jwtPayload: UserJWTPayload = {
+      id: user.id,
+      username: user.username,
+      role: user.role,
+    };
+    const token = signToken(jwtPayload);
+
+    logger.info(`User authenticated successfully via Email OTP: ${user.email}`, 'AuthHandler');
+
+    reply.send({
+      success: true,
+      message: 'Officer identity authenticated successfully.',
+      token,
+      user,
+      data: { user, token }
+    });
+  } catch (err) {
+    logger.error('Error verifying login OTP', err as Error, 'APIServer');
+    reply.status(500).send({ success: false, error: 'Authentication verification failed.' });
+  }
+});
+
+/**
+ * Helper to enforce enterprise police department strong password policy for new enrollments/resets
+ */
+function validateStrongPassword(password: string): { valid: boolean; error?: string } {
+  if (!password || password.length < 8) {
+    return { valid: false, error: 'Password must be at least 8 characters long.' };
+  }
+  if (!/[A-Z]/.test(password)) {
+    return { valid: false, error: 'Password must contain at least one uppercase letter (A-Z).' };
+  }
+  if (!/[a-z]/.test(password)) {
+    return { valid: false, error: 'Password must contain at least one lowercase letter (a-z).' };
+  }
+  if (!/[0-9]/.test(password)) {
+    return { valid: false, error: 'Password must contain at least one numeric digit (0-9).' };
+  }
+  if (!/[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?~`]/.test(password)) {
+    return { valid: false, error: 'Password must contain at least one special character (e.g. !@#$%^&*).' };
+  }
+  return { valid: true };
+}
+
+/**
+ * Register New Officer with Email OTP Verification
+ */
+fastify.post('/api/auth/register-with-otp', async (request: FastifyRequest, reply: FastifyReply) => {
+  try {
+    const { username, email, password, role = 'officer', otp } = (request.body as any) || {};
+    if (!username || !email || !password || !otp) {
+      reply.status(400).send({ success: false, error: 'Username, email, password, and OTP code are required.' });
+      return;
+    }
+
+    // Strong password validation for new account enrollments
+    const passCheck = validateStrongPassword(password);
+    if (!passCheck.valid) {
+      reply.status(400).send({ success: false, error: passCheck.error });
+      return;
+    }
+
+    const cleanEmail = email.trim().toLowerCase();
+    const cleanUsername = username.trim();
+
+    const verification = otpAuthService.verifyOtp(cleanEmail, otp, 'REGISTER');
+    if (!verification.valid) {
+      reply.status(401).send({ success: false, error: verification.error });
+      return;
+    }
+
+    // Check if username or email already exists
+    const existing = await pool.query('SELECT id FROM users WHERE LOWER(username) = LOWER($1) OR LOWER(email) = LOWER($2);', [cleanUsername, cleanEmail]);
+    if (existing.rowCount !== null && existing.rowCount > 0) {
+      reply.status(409).send({ success: false, error: 'An officer with this badge username or email already exists.' });
+      return;
+    }
+
+    const hashedPassword = await bcrypt.hash(password, 10);
+    const insertRes = await pool.query(`
+      INSERT INTO users (username, email, password_hash, role)
+      VALUES ($1, $2, $3, $4)
+      RETURNING id, username, email, role, created_at;
+    `, [cleanUsername, cleanEmail, hashedPassword, role]);
+
+    const dbUser = insertRes.rows[0];
+    const user: User = {
+      id: dbUser.id,
+      username: dbUser.username,
+      email: dbUser.email,
+      role: dbUser.role,
+      createdAt: new Date(dbUser.created_at).toISOString(),
+    };
+
+    const token = signToken({ id: user.id, username: user.username, role: user.role });
+
+    logger.info(`New officer registered with OTP verification: ${cleanUsername} (${cleanEmail})`, 'AuthHandler');
+
+    reply.send({
+      success: true,
+      message: 'Officer profile enrolled successfully.',
+      token,
+      user,
+      data: { user, token }
+    });
+  } catch (err) {
+    logger.error('Error in register-with-otp', err as Error, 'APIServer');
+    reply.status(500).send({ success: false, error: 'Registration failed.' });
+  }
+});
+
+/**
+ * Reset Forgotten Password with Email OTP
+ */
+fastify.post('/api/auth/reset-password', async (request: FastifyRequest, reply: FastifyReply) => {
+  try {
+    const { email, otp, newPassword } = (request.body as any) || {};
+    if (!email || !otp || !newPassword) {
+      reply.status(400).send({ success: false, error: 'Email, 6-digit OTP code, and new password are required.' });
+      return;
+    }
+
+    // Strong password validation for password resets
+    const passCheck = validateStrongPassword(newPassword);
+    if (!passCheck.valid) {
+      reply.status(400).send({ success: false, error: passCheck.error });
+      return;
+    }
+
+    const cleanEmail = email.trim().toLowerCase();
+    const verification = otpAuthService.verifyOtp(cleanEmail, otp, 'FORGOT_PASSWORD');
+    if (!verification.valid) {
+      reply.status(401).send({ success: false, error: verification.error });
+      return;
+    }
+
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+    const updateRes = await pool.query(`
+      UPDATE users 
+      SET password_hash = $1 
+      WHERE LOWER(email) = LOWER($2) OR LOWER(username) = LOWER($2)
+      RETURNING id, username, email;
+    `, [hashedPassword, cleanEmail]);
+
+    if (updateRes.rowCount === 0) {
+      reply.status(404).send({ success: false, error: 'No user account found to update password.' });
+      return;
+    }
+
+    logger.info(`Password successfully reset via OTP for officer: ${cleanEmail}`, 'AuthHandler');
+
+    reply.send({
+      success: true,
+      message: 'Badge access password reset successfully. You can now sign in with your new password.'
+    });
+  } catch (err) {
+    logger.error('Error resetting password', err as Error, 'APIServer');
+    reply.status(500).send({ success: false, error: 'Failed to reset password.' });
+  }
+});
 
 /**
  * On-demand targeted crawler endpoint (integrated with DB pipeline).
@@ -527,8 +802,16 @@ fastify.post('/api/crawler/extract', async (request: FastifyRequest, reply: Fast
           break;
 
         case 'instagram':
-          const igMode = mode === 'hashtag' ? 'hashtag' : mode === 'location' ? 'location' : 'profile';
-          items = await instagramScraper.scrape(igMode, target, runLimit, startDate, endDate, true);
+          const igMode = (mode === 'reels' || target.toLowerCase().includes('reel')) 
+            ? 'reels' 
+            : mode === 'hashtag' 
+              ? 'hashtag' 
+              : mode === 'location' 
+                ? 'location' 
+                : mode === 'explore_reels' 
+                  ? 'explore_reels' 
+                  : 'profile';
+          items = await instagramScraper.scrape(igMode as any, target, runLimit, startDate, endDate, true);
           break;
 
         case 'twitter':
@@ -725,14 +1008,14 @@ fastify.get('/api/dashboard/stats', { preHandler: [authenticate] }, async (reque
 });
 
 /**
- * Paginated and filterable Intelligence Feed list
+ * Paginated and filterable Intelligence Feed list (sorted by newest crawled/published first)
  */
 fastify.get('/api/dashboard/feed', { preHandler: [authenticate] }, async (request: FastifyRequest, reply) => {
   try {
     const { platform, severity, category, language, query } = request.query as any;
     let sql = `
       SELECT 
-        r.id, r.source, r.url, r.title, r.content, r.author, r.published_at as "publishedAt", r.metadata,
+        r.id, r.source, r.url, r.title, r.content, r.author, r.published_at as "publishedAt", r.crawled_at as "crawledAt", r.metadata,
         p.original_language as "originalLanguage", p.translated_title as "translatedTitle", p.translated_content as "translatedContent",
         p.sentiment_score as "sentimentScore", p.sentiment_label as "sentimentLabel",
         p.threat_score as "threatScore", p.threat_label as "threatLabel", p.threat_category as "threatCategory",
@@ -770,12 +1053,101 @@ fastify.get('/api/dashboard/feed', { preHandler: [authenticate] }, async (reques
       pIdx++;
     }
 
-    sql += ` ORDER BY r.published_at DESC LIMIT 50;`;
+    sql += ` ORDER BY r.crawled_at DESC, r.published_at DESC LIMIT 100;`;
     const res = await pool.query(sql, params);
-    reply.send({ success: true, count: res.rowCount, feed: res.rows });
+    reply.send({ success: true, count: res.rowCount, feed: res.rows, data: res.rows });
   } catch (err) {
     reply.status(500).send({ error: 'Failed to retrieve feed', details: (err as Error).message });
   }
+});
+
+// Alias for /api/feed
+fastify.get('/api/feed', { preHandler: [authenticate] }, async (request: FastifyRequest, reply) => {
+  try {
+    const { platform, severity, category, language, query } = request.query as any;
+    let sql = `
+      SELECT 
+        r.id, r.source, r.url, r.title, r.content, r.author, r.published_at as "publishedAt", r.crawled_at as "crawledAt", r.metadata,
+        p.original_language as "originalLanguage", p.translated_title as "translatedTitle", p.translated_content as "translatedContent",
+        p.sentiment_score as "sentimentScore", p.sentiment_label as "sentimentLabel",
+        p.threat_score as "threatScore", p.threat_label as "threatLabel", p.threat_category as "threatCategory",
+        p.named_entities as "namedEntities"
+      FROM raw_posts r
+      JOIN processed_posts p ON r.id = p.raw_post_id
+      WHERE 1=1
+    `;
+    const params: any[] = [];
+    let pIdx = 1;
+
+    if (platform) {
+      sql += ` AND r.source = $${pIdx}`;
+      params.push(platform);
+      pIdx++;
+    }
+    if (severity) {
+      sql += ` AND p.threat_label = $${pIdx}`;
+      params.push(severity);
+      pIdx++;
+    }
+    if (category) {
+      sql += ` AND p.threat_category = $${pIdx}`;
+      params.push(category);
+      pIdx++;
+    }
+    if (language) {
+      sql += ` AND p.original_language = $${pIdx}`;
+      params.push(language);
+      pIdx++;
+    }
+    if (query) {
+      sql += ` AND (r.content ILIKE $${pIdx} OR r.title ILIKE $${pIdx} OR p.translated_content ILIKE $${pIdx})`;
+      params.push(`%${query}%`);
+      pIdx++;
+    }
+
+    sql += ` ORDER BY r.crawled_at DESC, r.published_at DESC LIMIT 100;`;
+    const res = await pool.query(sql, params);
+    reply.send({ success: true, count: res.rowCount, feed: res.rows, data: res.rows });
+  } catch (err) {
+    reply.status(500).send({ error: 'Failed to retrieve feed', details: (err as Error).message });
+  }
+});
+
+/**
+ * Delete a crawled telemetry post from the database
+ */
+fastify.delete('/api/feed/:id', { preHandler: [authenticate] }, async (request: FastifyRequest, reply) => {
+  try {
+    const { id } = request.params as { id: string };
+    if (!id) {
+      reply.status(400).send({ error: 'Post ID is required' });
+      return;
+    }
+
+    // 1. Delete associated alerts safely
+    await pool.query(`
+      DELETE FROM alerts 
+      WHERE processed_post_id IN (
+        SELECT id FROM processed_posts WHERE raw_post_id = $1
+      );
+    `, [id]);
+
+    // 2. Delete processed_posts
+    await pool.query('DELETE FROM processed_posts WHERE raw_post_id = $1;', [id]);
+
+    // 3. Delete raw_posts
+    const delRes = await pool.query('DELETE FROM raw_posts WHERE id = $1;', [id]);
+
+    reply.send({ success: true, message: 'Telemetry post deleted successfully', deletedCount: delRes.rowCount });
+  } catch (err) {
+    logger.error('Failed to delete telemetry post', err as Error, 'APIServer');
+    reply.status(500).send({ error: 'Failed to delete post', details: (err as Error).message });
+  }
+});
+fastify.delete('/api/posts/:id', { preHandler: [authenticate] }, async (req, reply) => {
+  return fastify.inject({ method: 'DELETE', url: `/api/feed/${(req.params as any).id}`, headers: req.headers as any }).then(res => {
+    reply.status(res.statusCode).headers(res.headers).send(res.body);
+  });
 });
 
 /**
@@ -996,1337 +1368,511 @@ fastify.get('/api/dashboard/reports/:alertId', { preHandler: [authenticate] }, a
   }
 });
 
+const agentInvestigator = new AgentInvestigator(pool);
+
+/**
+ * Agentic Copilot Query Route (ERH26_PS_10)
+ */
+fastify.post('/api/agent/chat', { preHandler: [authenticate] }, async (request: FastifyRequest, reply) => {
+  try {
+    const { query, postId, contextItems = [] } = request.body as { query?: string; postId?: string; contextItems?: any[] };
+    if (!query) {
+      reply.status(400).send({ error: 'Query prompt is required' });
+      return;
+    }
+    const officer = (request as any).user?.username || 'Officer';
+    const result = await agentInvestigator.processQuery(query, officer, postId, contextItems);
+    reply.send({ success: true, result });
+  } catch (err) {
+    reply.status(500).send({ error: 'Agent execution failed', details: (err as Error).message });
+  }
+});
+
+/**
+ * Dark Web Intelligence Feed & Categorized Repository (ERH26_PS_06)
+ */
+fastify.get('/api/darkweb/feed', { preHandler: [authenticate] }, async (request: FastifyRequest, reply) => {
+  try {
+    const { query, category } = request.query as { query?: string; category?: string };
+    const feeds = darkWebMonitor.getFeeds(query, category);
+    reply.send({ success: true, count: feeds.length, feeds });
+  } catch (err) {
+    reply.status(500).send({ error: 'Failed to fetch dark web feeds', details: (err as Error).message });
+  }
+});
+
+/**
+ * Live Tor & Dark Web Search Route (POST & GET) (ERH26_PS_06)
+ */
+fastify.post('/api/darkweb/search', { preHandler: [authenticate] }, async (request: FastifyRequest, reply) => {
+  try {
+    const { query } = (request.body as { query?: string }) || {};
+    if (!query) {
+      reply.status(400).send({ error: 'Search keyword is required for Tor query' });
+      return;
+    }
+    const results = await darkWebMonitor.searchLiveAhmia(query);
+    reply.send({ success: true, query, count: results.length, results });
+  } catch (err) {
+    reply.status(500).send({ error: 'Live Tor search failed', details: (err as Error).message });
+  }
+});
+
+fastify.get('/api/darkweb/live-search', { preHandler: [authenticate] }, async (request: FastifyRequest, reply) => {
+  try {
+    const { query } = request.query as { query?: string };
+    if (!query) {
+      reply.status(400).send({ error: 'Search keyword is required for Tor query' });
+      return;
+    }
+    const results = await darkWebMonitor.searchLiveAhmia(query);
+    reply.send({ success: true, query, count: results.length, results });
+  } catch (err) {
+    reply.status(500).send({ error: 'Live Tor search failed', details: (err as Error).message });
+  }
+});
+
+/**
+ * Cryptocurrency Address Forensic Audit Route (ERH26_PS_06)
+ */
+fastify.post('/api/crypto/audit', { preHandler: [authenticate] }, async (request: FastifyRequest, reply) => {
+  try {
+    const { address } = request.body as { address?: string };
+    if (!address) {
+      reply.status(400).send({ error: 'Crypto wallet public address is required' });
+      return;
+    }
+    const audit = await cryptoForensics.auditCryptoAddress(address);
+    reply.send({ success: true, audit });
+  } catch (err) {
+    reply.status(500).send({ error: 'Crypto wallet audit failed', details: (err as Error).message });
+  }
+});
+
+fastify.post('/api/crypto/notice', { preHandler: [authenticate] }, async (request: FastifyRequest, reply) => {
+  try {
+    const { address, caseId } = request.body as { address?: string; caseId?: string };
+    if (!address) {
+      reply.status(400).send({ error: 'Crypto wallet public address is required' });
+      return;
+    }
+    const audit = await cryptoForensics.auditCryptoAddress(address);
+    const notice = cryptoForensics.generateExchangeProductionNotice(audit, caseId);
+    reply.send({ success: true, notice, audit });
+  } catch (err) {
+    reply.status(500).send({ error: 'Exchange notice generation failed', details: (err as Error).message });
+  }
+});
+
+fastify.post('/api/darkweb/crypto-lookup', { preHandler: [authenticate] }, async (request: FastifyRequest, reply) => {
+  try {
+    const { address } = request.body as { address?: string };
+    if (!address) {
+      reply.status(400).send({ error: 'Crypto wallet public address is required' });
+      return;
+    }
+    const audit = await cryptoForensics.auditCryptoAddress(address);
+    reply.send({ success: true, audit });
+  } catch (err) {
+    reply.status(500).send({ error: 'Crypto wallet audit failed', details: (err as Error).message });
+  }
+});
+
+/**
+ * Real Hardware ADB Live Probe Route (ERH26_PS_02)
+ */
+fastify.get('/api/forensics/adb-live', { preHandler: [authenticate] }, async (request: FastifyRequest, reply) => {
+  try {
+    const liveResult = await realAdbBridge.probeDevices();
+    reply.send({ success: true, data: liveResult });
+  } catch (err) {
+    reply.status(500).send({ error: 'Live ADB probe failed', details: (err as Error).message });
+  }
+});
+
+/**
+ * Real Physical Device Live Evidence Extraction (Documents, WhatsApp, APKs, EXIF) (ERH26_PS_02)
+ */
+fastify.post('/api/forensics/live-extract', { preHandler: [authenticate] }, async (request: FastifyRequest, reply) => {
+  try {
+    const { serial } = (request.body as any) || {};
+    const officer = (request as any).user?.username || 'Insp. Cyber Crime Branch';
+    const result = await realAdbBridge.extractLiveDeviceEvidence(officer, serial);
+    reply.send({ success: true, data: result });
+  } catch (err) {
+    reply.status(500).send({ error: 'Live device extraction failed', details: (err as Error).message });
+  }
+});
+
+/**
+ * Real Evidence Multi-File Upload & Forensic Ingestion (ERH26_PS_02)
+ */
+fastify.post('/api/forensics/upload-evidence', { preHandler: [authenticate] }, async (request: FastifyRequest, reply) => {
+  try {
+    const parts = request.files();
+    const uploadedFiles: { name: string; buffer: Buffer }[] = [];
+
+    for await (const part of parts) {
+      const buf = await part.toBuffer();
+      uploadedFiles.push({
+        name: part.filename,
+        buffer: buf
+      });
+    }
+
+    const officer = (request as any).user?.username || 'Investigating Officer';
+    const report = await forensicsTriage.generateTriageReport(officer, uploadedFiles);
+
+    reply.send({
+      success: true,
+      filesProcessed: uploadedFiles.length,
+      report
+    });
+  } catch (err) {
+    reply.status(500).send({ error: 'Evidence file processing failed', details: (err as Error).message });
+  }
+});
+
+/**
+ * Real-Time Seized Document & Database Download / Preview (ERH26_PS_02)
+ */
+fastify.get('/api/forensics/download', async (request: FastifyRequest, reply) => {
+  try {
+    const { filePath, serial, token } = request.query as { filePath?: string; serial?: string; token?: string };
+    
+    // Auth check: either from header or query token
+    const authHeader = request.headers.authorization;
+    const rawToken = authHeader?.startsWith('Bearer ') ? authHeader.substring(7) : token;
+    if (!rawToken) {
+      reply.status(401).send({ error: 'Unauthorized: Access token required' });
+      return;
+    }
+
+    try {
+      verifyToken(rawToken);
+    } catch {
+      reply.status(401).send({ error: 'Invalid or expired access token' });
+      return;
+    }
+
+    if (!filePath) {
+      reply.status(400).send({ error: 'filePath parameter is required' });
+      return;
+    }
+
+    const fname = path.basename(filePath);
+    const targetSerial = serial || '91e3a45';
+    const evidenceDir = path.join(process.cwd(), 'seized_evidence', targetSerial);
+    if (!fs.existsSync(evidenceDir)) {
+      fs.mkdirSync(evidenceDir, { recursive: true });
+    }
+
+    const localFilePath = path.join(evidenceDir, fname);
+
+    // If file does not exist locally yet, pull it from phone via ADB
+    if (!fs.existsSync(localFilePath)) {
+      const adbCmd = realAdbBridge.getAdbExecutable();
+      await execAsync(`${adbCmd} -s ${targetSerial} pull "${filePath}" "${localFilePath}"`, { timeout: 30000 });
+    }
+
+    if (!fs.existsSync(localFilePath)) {
+      reply.status(404).send({ error: `File could not be extracted from phone: ${fname}` });
+      return;
+    }
+
+    const ext = path.extname(fname).toLowerCase();
+    let mimeType = 'application/octet-stream';
+    if (ext === '.pdf') mimeType = 'application/pdf';
+    else if (ext === '.jpg' || ext === '.jpeg') mimeType = 'image/jpeg';
+    else if (ext === '.png') mimeType = 'image/png';
+    else if (ext === '.txt') mimeType = 'text/plain; charset=utf-8';
+    else if (ext === '.docx') mimeType = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+    else if (ext === '.xlsx') mimeType = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+
+    const fileStream = fs.createReadStream(localFilePath);
+    reply.header('Content-Type', mimeType);
+    reply.header('Content-Disposition', `inline; filename="${fname}"`);
+    return reply.send(fileStream);
+
+  } catch (err) {
+    reply.status(500).send({ error: 'File download failed', details: (err as Error).message });
+  }
+});
+
+/**
+ * Plaintext WhatsApp Chat Export Ingestion (_chat.txt) (ERH26_PS_02)
+ */
+fastify.post('/api/forensics/parse-chat-text', { preHandler: [authenticate] }, async (request: FastifyRequest, reply) => {
+  try {
+    const { chatText, filename } = request.body as { chatText?: string; filename?: string };
+    if (!chatText) {
+      reply.status(400).send({ error: 'chatText content is required' });
+      return;
+    }
+
+    const records = forensicsTriage.parseChatExportText(chatText);
+    reply.send({
+      success: true,
+      totalParsed: records.length,
+      records
+    });
+  } catch (err) {
+    reply.status(500).send({ error: 'Failed to parse chat export', details: (err as Error).message });
+  }
+});
+
+/**
+ * WhatsApp crypt14 / crypt15 Decryption Route (ERH26_PS_02)
+ */
+fastify.post('/api/forensics/decrypt-whatsapp', { preHandler: [authenticate] }, async (request: FastifyRequest, reply) => {
+  try {
+    const { keyHex, dbPath, serial } = request.body as { keyHex?: string; dbPath?: string; serial?: string };
+    if (!keyHex) {
+      reply.status(400).send({ error: 'WhatsApp 64-hexadecimal key or 32-byte key is required' });
+      return;
+    }
+
+    const targetSerial = serial || '91e3a45';
+    const targetDbPath = dbPath || '/sdcard/Android/media/com.whatsapp/WhatsApp/Databases/msgstore.db.crypt14';
+    const fname = path.basename(targetDbPath);
+    const localDbPath = path.join(process.cwd(), 'seized_evidence', targetSerial, fname);
+
+    if (!fs.existsSync(localDbPath)) {
+      const adbCmd = realAdbBridge.getAdbExecutable();
+      await execAsync(`${adbCmd} -s ${targetSerial} pull "${targetDbPath}" "${localDbPath}"`, { timeout: 35000 });
+    }
+
+    if (!fs.existsSync(localDbPath)) {
+      reply.status(404).send({ error: 'WhatsApp database file could not be pulled from device' });
+      return;
+    }
+
+    const encBuf = fs.readFileSync(localDbPath);
+    const decBuf = forensicsTriage.decryptWhatsAppCrypt14(encBuf, keyHex);
+
+    const decryptedPath = path.join(process.cwd(), 'seized_evidence', targetSerial, 'msgstore_decrypted.db');
+    fs.writeFileSync(decryptedPath, decBuf);
+
+    const records = forensicsTriage.parseDatabaseOrChatBuffer(decBuf, 'msgstore_decrypted.db');
+
+    reply.send({
+      success: true,
+      message: 'WhatsApp database successfully decrypted via AES-256-GCM',
+      decryptedDbPath: decryptedPath,
+      records
+    });
+  } catch (err) {
+    reply.status(500).send({ error: 'Decryption failed', details: (err as Error).message });
+  }
+});
+
+/**
+ * CrimeOS: Cases Management API (ERH26_PS_10)
+ */
+fastify.get('/api/crimeos/cases', { preHandler: [authenticate] }, async (request: FastifyRequest, reply) => {
+  try {
+    const casesRes = await pool.query(`
+      SELECT 
+        id, case_number as "caseNumber", fir_number as "firNumber", title,
+        police_station as "policeStation", investigating_officer as "investigatingOfficer",
+        status, threat_level as "threatLevel", applicable_bns_sections as "applicableBnsSections",
+        incident_summary as "incidentSummary", created_at as "createdAt"
+      FROM cases
+      ORDER BY created_at DESC;
+    `);
+
+    // If no cases in DB yet, insert realistic default active police cases
+    if (casesRes.rows.length === 0) {
+      await pool.query(`
+        INSERT INTO cases (case_number, fir_number, title, police_station, investigating_officer, status, threat_level, applicable_bns_sections, incident_summary)
+        VALUES 
+          ('CASE-SRT-2026-081', 'FIR-SRT-2026-4412', 'Varachha Diamond Syndicate Extortion Threat', 'Cyber Crime Branch Surat', 'Insp. V. K. Jadeja', 'ACTIVE_INVESTIGATION', 'CRITICAL', '["BNS 308(2) Extortion", "BNS 351(2) Criminal Intimidation", "IT Act 66D"]'::jsonb, 'Coordinated WhatsApp VoIP extortion demands targeting SEZ diamond export merchants with leaked tax assessment dumps.'),
+          ('CASE-SRT-2026-082', 'FIR-SRT-2026-4419', 'NH-48 Ankleshwar-Surat Firearms Trafficking', 'Special Operations Group (SOG)', 'Sub-Insp. R. M. Patel', 'SURVEILLANCE', 'CRITICAL', '["Arms Act Sec 25(1-A)", "BNS 111 Organized Crime"]'::jsonb, 'Underground supply channel distributing country-made 7.65mm pistols via dead drops along Vesu & Dumas bypass.'),
+          ('CASE-SRT-2026-083', 'FIR-SRT-2026-4425', 'Katargam Communal Disinformation & Riot Incitement', 'Katargam Police Station', 'Insp. S. B. Desai', 'CHARGESHEET_FILED', 'HIGH', '["BNS 196 Promoting Enmity", "BNS 197 Public Mischief", "IT Act 66C"]'::jsonb, 'Viral social media video manipulation inciting stone-pelting and bandh calls across Katargam market perimeter.');
+      `);
+
+      const refreshed = await pool.query(`
+        SELECT 
+          id, case_number as "caseNumber", fir_number as "firNumber", title,
+          police_station as "policeStation", investigating_officer as "investigatingOfficer",
+          status, threat_level as "threatLevel", applicable_bns_sections as "applicableBnsSections",
+          incident_summary as "incidentSummary", created_at as "createdAt"
+        FROM cases
+        ORDER BY created_at DESC;
+      `);
+      reply.send({ success: true, cases: refreshed.rows });
+      return;
+    }
+
+    reply.send({ success: true, cases: casesRes.rows });
+  } catch (err) {
+    reply.status(500).send({ error: 'Failed to retrieve cases', details: (err as Error).message });
+  }
+});
+
+fastify.post('/api/crimeos/cases', { preHandler: [authenticate] }, async (request: FastifyRequest, reply) => {
+  try {
+    const { title, policeStation, investigatingOfficer, threatLevel, incidentSummary, threatCategory } = request.body as any;
+    if (!title) {
+      reply.status(400).send({ error: 'Case title is required' });
+      return;
+    }
+
+    const caseNumber = `CASE-SRT-${new Date().getFullYear()}-${Math.floor(100 + Math.random() * 900)}`;
+    const firNumber = `FIR-SRT-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`;
+    const officer = investigatingOfficer || (request as any).user?.username || 'IO Cyber Branch';
+    const bnsSections = agentInvestigator.getRecommendedBNSSections(threatCategory || 'cyber_crime', incidentSummary || title);
+
+    const insertRes = await pool.query(`
+      INSERT INTO cases (case_number, fir_number, title, police_station, investigating_officer, status, threat_level, applicable_bns_sections, incident_summary)
+      VALUES ($1, $2, $3, $4, $5, 'ACTIVE_INVESTIGATION', $6, $7, $8)
+      RETURNING *;
+    `, [caseNumber, firNumber, title, policeStation || 'Cyber Crime Branch Surat', officer, threatLevel || 'HIGH', JSON.stringify(bnsSections.map(s => `${s.statute} Sec ${s.section}`)), incidentSummary || '']);
+
+    reply.send({ success: true, case: insertRes.rows[0] });
+  } catch (err) {
+    reply.status(500).send({ error: 'Failed to create case', details: (err as Error).message });
+  }
+});
+
+/**
+ * Edit / Update an active case file (ERH26_PS_10)
+ */
+fastify.put('/api/crimeos/cases/:id', { preHandler: [authenticate] }, async (request: FastifyRequest, reply) => {
+  try {
+    const { id } = request.params as { id: string };
+    const { title, policeStation, investigatingOfficer, status, threatLevel, incidentSummary, applicableBnsSections } = request.body as any;
+
+    if (!id) {
+      reply.status(400).send({ error: 'Case ID is required' });
+      return;
+    }
+
+    const isNumeric = /^\d+$/.test(id);
+    const whereClause = isNumeric ? 'WHERE id = $8 OR case_number = $9' : 'WHERE case_number = $8';
+    const queryParams: any[] = [
+      title || null,
+      policeStation || null,
+      investigatingOfficer || null,
+      status || null,
+      threatLevel || null,
+      incidentSummary || null,
+      applicableBnsSections ? JSON.stringify(applicableBnsSections) : null,
+      isNumeric ? parseInt(id, 10) : id
+    ];
+    if (isNumeric) {
+      queryParams.push(id);
+    }
+
+    const updateRes = await pool.query(`
+      UPDATE cases
+      SET 
+        title = COALESCE($1, title),
+        police_station = COALESCE($2, police_station),
+        investigating_officer = COALESCE($3, investigating_officer),
+        status = COALESCE($4, status),
+        threat_level = COALESCE($5, threat_level),
+        incident_summary = COALESCE($6, incident_summary),
+        applicable_bns_sections = COALESCE($7::jsonb, applicable_bns_sections)
+      ${whereClause}
+      RETURNING id, case_number as "caseNumber", fir_number as "firNumber", title, police_station as "policeStation", investigating_officer as "investigatingOfficer", status, threat_level as "threatLevel", applicable_bns_sections as "applicableBnsSections", incident_summary as "incidentSummary";
+    `, queryParams);
+
+    if (updateRes.rowCount === 0) {
+      reply.status(404).send({ error: 'Case record not found' });
+      return;
+    }
+
+    reply.send({ success: true, case: updateRes.rows[0], message: 'Case updated successfully' });
+  } catch (err) {
+    logger.error('Failed to update case', err as Error, 'APIServer');
+    reply.status(500).send({ error: 'Failed to update case', details: (err as Error).message });
+  }
+});
+
+/**
+ * Delete an active case file (ERH26_PS_10)
+ */
+fastify.delete('/api/crimeos/cases/:id', { preHandler: [authenticate] }, async (request: FastifyRequest, reply) => {
+  try {
+    const { id } = request.params as { id: string };
+    if (!id) {
+      reply.status(400).send({ error: 'Case ID is required' });
+      return;
+    }
+
+    const isNumeric = /^\d+$/.test(id);
+    const delRes = isNumeric
+      ? await pool.query('DELETE FROM cases WHERE id = $1 OR case_number = $2 RETURNING id, case_number as "caseNumber", title;', [parseInt(id, 10), id])
+      : await pool.query('DELETE FROM cases WHERE case_number = $1 RETURNING id, case_number as "caseNumber", title;', [id]);
+
+    if (delRes.rowCount === 0) {
+      reply.status(404).send({ error: 'Case record not found' });
+      return;
+    }
+
+    reply.send({ success: true, message: 'Case record deleted successfully', case: delRes.rows[0] });
+  } catch (err) {
+    logger.error('Failed to delete case', err as Error, 'APIServer');
+    reply.status(500).send({ error: 'Failed to delete case', details: (err as Error).message });
+  }
+});
+
+/**
+ * Telecom CDR & Tower Dump Multi-Format Analyzer (ERH26_PS_10)
+ */
+fastify.post('/api/crimeos/cdr-analyze', { preHandler: [authenticate] }, async (request: FastifyRequest, reply) => {
+  try {
+    let rawCsvText = '';
+
+    // Check if multipart file was sent
+    if (request.isMultipart()) {
+      const parts = request.files();
+      for await (const part of parts) {
+        const buf = await part.toBuffer();
+        rawCsvText += buf.toString('utf8') + '\n';
+      }
+    } else if (request.body && typeof request.body === 'object' && (request.body as any).cdrText) {
+      rawCsvText = (request.body as any).cdrText;
+    }
+
+    const summary = cdrAnalyzer.parseAndAnalyze(rawCsvText);
+    reply.send({ success: true, summary });
+  } catch (err) {
+    reply.status(500).send({ error: 'CDR analysis failed', details: (err as Error).message });
+  }
+});
+
+/**
+ * Android Rapid Evidence Triage Route (ERH26_PS_02)
+ */
+fastify.post('/api/forensics/triage', { preHandler: [authenticate] }, async (request: FastifyRequest, reply) => {
+  try {
+    const { suspectName } = request.body as { suspectName?: string };
+    const report = await forensicsTriage.generateTriageReport(suspectName);
+    reply.send({ success: true, report });
+  } catch (err) {
+    reply.status(500).send({ error: 'Forensic triage failed', details: (err as Error).message });
+  }
+});
+
 /**
  * Serve breathtaking, tactical command center dashboard for police.
  */
 fastify.get('/', async (request: FastifyRequest, reply: FastifyReply) => {
-  const PORT = process.env.PORT || '5000';
-  const bt = '`';
-  
-  const html = `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>🛡️ Rakshak AI - Law Enforcement Command Center</title>
-  
-  <!-- Google Fonts -->
-  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
-  
-  <!-- Tailwind CSS -->
-  <script src="https://cdn.tailwindcss.com"></script>
-  
-  <!-- Leaflet Map JS and CSS (Dark Styled) -->
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
-  
-  <!-- Chart.js for beautiful analytics -->
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-
-  <script>
-    tailwind.config = {
-      theme: {
-        extend: {
-          fontFamily: {
-            sans: ['Outfit', 'sans-serif'],
-            mono: ['JetBrains Mono', 'monospace'],
-          },
-          colors: {
-            brand: {
-              navy: '#0b0f19',
-              darkBorder: '#1e293b',
-              glowCyan: '#06b6d4',
-              alertRed: '#ef4444',
-              alertOrange: '#f97316',
-              alertYellow: '#eab308'
-            }
-          }
-        }
-      }
+  const possiblePaths = [
+    path.join(__dirname, 'dashboard.html'),
+    path.join(__dirname, '..', 'src', 'dashboard.html'),
+    path.join(process.cwd(), 'api', 'src', 'dashboard.html'),
+    path.join(process.cwd(), 'dashboard.html')
+  ];
+  let html = '';
+  for (const p of possiblePaths) {
+    if (fs.existsSync(p)) {
+      html = fs.readFileSync(p, 'utf8');
+      break;
     }
-  </script>
-
-  <style>
-    body {
-      background: radial-gradient(circle at top left, #0e172a, #030712);
-      font-family: 'Outfit', sans-serif;
-      min-height: 100vh;
-      overflow-x: hidden;
-    }
-    .glass {
-      background: rgba(15, 23, 42, 0.55);
-      backdrop-filter: blur(20px);
-      border: 1px rgba(255, 255, 255, 0.05) solid;
-    }
-    .glow-cyan {
-      box-shadow: 0 0 20px rgba(6, 182, 212, 0.15);
-    }
-    .glow-red {
-      box-shadow: 0 0 25px rgba(239, 68, 68, 0.25);
-    }
-    .cyber-scan {
-      position: relative;
-      overflow: hidden;
-    }
-    .cyber-scan::after {
-      content: '';
-      position: absolute;
-      width: 100%;
-      height: 3px;
-      background: linear-gradient(90deg, transparent, rgba(6, 182, 212, 0.6), transparent);
-      top: -3px;
-      animation: scan 3s infinite linear;
-    }
-    @keyframes scan {
-      0% { top: -3px; }
-      100% { top: 100%; }
-    }
-    /* Scrollbars */
-    ::-webkit-scrollbar {
-      width: 6px;
-      height: 6px;
-    }
-    ::-webkit-scrollbar-track {
-      background: rgba(3, 7, 18, 0.1);
-    }
-    ::-webkit-scrollbar-thumb {
-      background: rgba(255, 255, 255, 0.15);
-      border-radius: 4px;
-    }
-    ::-webkit-scrollbar-thumb:hover {
-      background: rgba(6, 182, 212, 0.5);
-    }
-    #map {
-      height: 400px;
-      border-radius: 16px;
-      border: 1px solid rgba(255, 255, 255, 0.08);
-      z-index: 1;
-    }
-    /* Print evidentiary report */
-    @media print {
-      body {
-        background: white !important;
-        color: black !important;
-      }
-      body * {
-        visibility: hidden !important;
-      }
-      #printModal, #printModal > div, #printModalContent, #printModalContent * {
-        visibility: visible !important;
-      }
-      #printModal {
-        position: absolute !important;
-        left: 0 !important;
-        top: 0 !important;
-        width: 100% !important;
-        height: auto !important;
-        background: white !important;
-        opacity: 1 !important;
-        display: block !important;
-        border: none !important;
-        box-shadow: none !important;
-      }
-      #printModalContent {
-        position: absolute !important;
-        left: 0 !important;
-        top: 0 !important;
-        width: 100% !important;
-        background: white !important;
-        color: black !important;
-        padding: 0 !important;
-        margin: 0 !important;
-        border: none !important;
-        box-shadow: none !important;
-      }
-      /* Clean white background and black text on all inner elements */
-      #printModalContent * {
-        background: transparent !important;
-        color: black !important;
-        border-color: #cbd5e1 !important;
-        box-shadow: none !important;
-        text-shadow: none !important;
-      }
-      #printModalContent h2, #printModalContent h4, #printModalContent strong {
-        color: #0f172a !important;
-        font-weight: bold !important;
-      }
-      #printModalContent p, #printModalContent span, #printModalContent div {
-        color: #1e293b !important;
-      }
-      #printModalContent .text-cyan-400, #printModalContent .text-indigo-400, 
-      #printModalContent .text-amber-400, #printModalContent .text-red-400 {
-        color: #000000 !important;
-        font-weight: bold !important;
-      }
-      #printModalContent .bg-slate-950\\/80, #printModalContent .bg-slate-950, 
-      #printModalContent .bg-slate-900\\/50, #printModalContent .bg-slate-950\\/50 {
-        background: #f8fafc !important;
-        border: 1px solid #cbd5e1 !important;
-        border-radius: 8px !important;
-      }
-      .no-print {
-        display: none !important;
-        height: 0 !important;
-        width: 0 !important;
-      }
-    }
-  </style>
-</head>
-<body class="text-slate-100 antialiased min-h-screen flex flex-col">
-
-  <!-- ==================== LOGIN PORTAL (SECTORED GATEWAY) ==================== -->
-  <div id="loginGate" class="flex-1 flex items-center justify-center p-4">
-    <div class="max-w-md w-full glass p-8 rounded-2xl glow-cyan border border-cyan-500/10 space-y-6 relative overflow-hidden cyber-scan">
-      <div class="text-center space-y-2">
-        <div class="inline-flex bg-cyan-500/10 p-3 rounded-full border border-cyan-500/30 text-cyan-400 mb-2">
-          <svg xmlns="http://www.w3.org/2000/svg" class="h-10 w-10 animate-pulse" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
-          </svg>
-        </div>
-        <h1 class="text-2xl font-bold tracking-wider text-white">RAKSHAK AI GATEWAY</h1>
-        <p class="text-xs text-slate-400 font-semibold tracking-wider font-mono">SURAT MUNICIPAL OSINT SECURITY TERMINAL</p>
-      </div>
-
-      <div id="loginError" class="hidden text-xs bg-red-500/10 text-red-400 p-3 border border-red-500/30 rounded-lg">
-        Invalid credentials. Access Denied.
-      </div>
-
-      <form id="loginForm" class="space-y-4">
-        <div>
-          <label class="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1.5 font-mono">Officer Identification</label>
-          <input type="text" id="loginUser" placeholder="Username (officer_surat)" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 transition font-mono" required>
-        </div>
-        <div>
-          <label class="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1.5 font-mono">Cryptographic Passcode</label>
-          <input type="password" id="loginPass" placeholder="•••••••• (rakshak_secure)" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 transition font-mono" required>
-        </div>
-        <button type="submit" class="w-full py-3.5 bg-gradient-to-r from-cyan-500 to-indigo-600 hover:from-cyan-600 hover:to-indigo-700 text-white font-bold text-sm rounded-xl transition shadow-lg tracking-wider">
-          AUTHENTICATE & ACCESS COMMAND
-        </button>
-      </form>
-
-      <!-- Pre-filled box for Hackathon Judges -->
-      <div class="p-4 bg-slate-900/50 border border-slate-850 rounded-xl space-y-1.5 text-xs text-slate-400">
-        <div class="font-bold text-cyan-400 flex items-center gap-1 font-mono uppercase">
-          <span class="w-1.5 h-1.5 bg-cyan-400 rounded-full animate-ping"></span>
-          Demo Evaluation Credentials
-        </div>
-        <div class="font-mono"><strong>Username:</strong> officer_surat</div>
-        <div class="font-mono"><strong>Password:</strong> rakshak_secure</div>
-      </div>
-    </div>
-  </div>
-
-  <!-- ==================== MAIN COMMAND CENTER AREA (HIDDEN BY DEFAULT) ==================== -->
-  <div id="mainDashboard" class="hidden flex-1 flex flex-col">
-    <!-- Header Banner -->
-    <header class="border-b border-slate-800/80 px-6 py-4 glass sticky top-0 z-50 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-      <div class="flex items-center space-x-3">
-        <div class="bg-cyan-500/10 p-2.5 rounded-lg border border-cyan-500/30 text-cyan-400 shadow-md">
-          <svg xmlns="http://www.w3.org/2000/svg" class="h-6.5 w-6.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
-          </svg>
-        </div>
-        <div>
-          <h1 class="text-xl font-bold tracking-tight text-white flex items-center gap-2">
-            RAKSHAK AI <span class="text-[10px] bg-cyan-500/20 text-cyan-300 font-bold px-2 py-0.5 rounded border border-cyan-500/30 font-mono tracking-wider uppercase">OSINT Intel Node</span>
-          </h1>
-          <p class="text-xs text-slate-400">Surat Police Department • Public Safety Monitoring Dashboard</p>
-        </div>
-      </div>
-
-      <!-- Center Status / Active Warning Alerts -->
-      <div id="emergencyTicker" class="hidden flex items-center gap-2.5 bg-red-950/40 border border-red-500/30 px-4 py-2 rounded-xl text-xs font-semibold text-red-400">
-        <span class="w-2.5 h-2.5 bg-red-500 rounded-full animate-ping"></span>
-        <span>ALERT CRITICAL THREAT PATTERNS FLAGGED IN SURAT ACTIVE ZONE</span>
-      </div>
-
-      <!-- Right Metadata / User Actions -->
-      <div class="flex items-center space-x-4">
-        <div class="text-right hidden sm:block">
-          <div id="officerName" class="text-sm font-semibold text-slate-200">Officer Surat</div>
-          <div class="text-[10px] text-slate-400 font-mono">BADGE #SRT-8092 • LE OFFICER</div>
-        </div>
-        <button id="logoutBtn" class="px-3.5 py-2 text-xs bg-slate-900 border border-slate-800 hover:bg-slate-800 hover:border-slate-700 text-slate-300 font-bold rounded-lg transition">
-          LOGOUT
-        </button>
-      </div>
-    </header>
-
-    <div class="flex-1 max-w-7xl w-full mx-auto p-4 md:p-6 space-y-6">
-      
-      <!-- Stats Counters Grid -->
-      <div class="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <div class="glass p-5 rounded-2xl border-l-4 border-l-cyan-500 shadow-md space-y-1 hover:border-cyan-400 transition">
-          <div class="text-[10px] font-bold text-slate-400 uppercase tracking-wider font-mono">Total OSINT Items</div>
-          <div id="statTotal" class="text-2xl font-bold text-white font-mono">0</div>
-          <div class="text-[10px] text-slate-500">Ingested social media records</div>
-        </div>
-        <div class="glass p-5 rounded-2xl border-l-4 border-l-red-500 shadow-md space-y-1 hover:border-red-400 transition">
-          <div class="text-[10px] font-bold text-slate-400 uppercase tracking-wider font-mono flex items-center gap-1">
-            Critical Alerts
-            <span id="statCriticalPulse" class="hidden w-2 h-2 bg-red-500 rounded-full animate-ping"></span>
-          </div>
-          <div id="statCritical" class="text-2xl font-bold text-red-500 font-mono">0</div>
-          <div class="text-[10px] text-slate-500">High severity public safety events</div>
-        </div>
-        <div class="glass p-5 rounded-2xl border-l-4 border-l-amber-500 shadow-md space-y-1 hover:border-amber-400 transition">
-          <div class="text-[10px] font-bold text-slate-400 uppercase tracking-wider font-mono">Unresolved Incidents</div>
-          <div id="statUnresolved" class="text-2xl font-bold text-amber-500 font-mono">0</div>
-          <div class="text-[10px] text-slate-500">Active investigatory case files</div>
-        </div>
-        <div class="glass p-5 rounded-2xl border-l-4 border-l-indigo-500 shadow-md space-y-1 hover:border-indigo-400 transition">
-          <div class="text-[10px] font-bold text-slate-400 uppercase tracking-wider font-mono">Geolocated Zones</div>
-          <div id="statGeolocated" class="text-2xl font-bold text-indigo-400 font-mono">0</div>
-          <div class="text-[10px] text-slate-500">Plotted coordinates on Surat map</div>
-        </div>
-      </div>
-
-      <!-- Main Operational Workspace Grid -->
-      <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        
-        <!-- Left Column: Map Container and Analytics Graph -->
-        <div class="lg:col-span-2 space-y-6">
-          
-          <!-- Geospatial Command Map -->
-          <div class="glass p-5 rounded-3xl space-y-4">
-            <h2 class="text-sm font-bold text-slate-200 uppercase tracking-wider font-mono flex items-center justify-between">
-              <span class="flex items-center gap-2">
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-cyan-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
-                </svg>
-                Surat City Geospatial Threat Matrix
-              </span>
-              <span class="text-xs text-slate-400 font-normal">Standard 4326 Point projection</span>
-            </h2>
-            <div id="map"></div>
-          </div>
-
-          <!-- Analytics Charts Panel -->
-          <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div class="glass p-5 rounded-2xl space-y-3">
-              <h3 class="text-xs font-bold text-slate-350 uppercase tracking-wider font-mono">Threat Categories</h3>
-              <div class="h-44 relative flex items-center justify-center">
-                <canvas id="categoryChart"></canvas>
-              </div>
-            </div>
-            <div class="glass p-5 rounded-2xl space-y-3">
-              <h3 class="text-xs font-bold text-slate-350 uppercase tracking-wider font-mono">Platform Ratios</h3>
-              <div class="h-44 relative flex items-center justify-center">
-                <canvas id="platformChart"></canvas>
-              </div>
-            </div>
-          </div>
-
-        </div>
-
-        <!-- Right Column: Incident Alerts and Crawler Operations -->
-        <div class="lg:col-span-1 flex flex-col space-y-6">
-          
-          <!-- Operation Tabs Header -->
-          <div class="glass p-1.5 rounded-xl flex gap-1 font-semibold text-xs tracking-wider">
-            <button id="tabAlertsBtn" class="flex-1 py-3 text-center rounded-lg bg-cyan-500/20 text-cyan-300 font-bold border border-cyan-500/20 uppercase tracking-wider transition">
-              🚨 Incident Alerts
-            </button>
-            <button id="tabCrawlerBtn" class="flex-1 py-3 text-center rounded-lg hover:bg-slate-800 text-slate-400 hover:text-slate-300 uppercase tracking-wider transition">
-              ⚡ Crawler control
-            </button>
-          </div>
-
-          <!-- Tab Content A: Active Alerts (Default) -->
-          <div id="tabAlerts" class="flex-1 flex flex-col space-y-4">
-            <div class="glass p-5 rounded-3xl flex-1 flex flex-col min-h-[500px]">
-              <h3 class="text-sm font-bold text-white uppercase tracking-wider font-mono border-b border-slate-800/80 pb-3 mb-4 flex items-center justify-between">
-                <span>Active Threat Stream</span>
-                <span id="alertsCount" class="text-xs bg-slate-800 text-slate-300 px-2 py-0.5 rounded font-mono">0</span>
-              </h3>
-              
-              <!-- Alerts List Container -->
-              <div id="alertsList" class="flex-1 overflow-y-auto max-h-[520px] space-y-3 pr-1">
-                <!-- Seeding dynamic alerts -->
-                <div class="text-center py-20 text-slate-500 text-xs">Awaiting database connection...</div>
-              </div>
-            </div>
-          </div>
-
-          <!-- Tab Content B: Crawler Ingestion Console -->
-          <div id="tabCrawler" class="hidden flex-1 flex flex-col space-y-4">
-            
-            <!-- Ingest Settings form -->
-            <div class="glass p-5 rounded-3xl space-y-4">
-              <h3 class="text-sm font-bold text-white uppercase tracking-wider font-mono border-b border-slate-800/80 pb-2 flex items-center gap-1.5">
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-4.5 w-4.5 text-cyan-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" />
-                </svg>
-                Ingestion Controls
-              </h3>
-              
-              <form id="crawlerForm" class="space-y-3.5">
-                <div>
-                  <label class="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Target Platform</label>
-                  <select id="platform" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-cyan-500 font-medium">
-                    <option value="reddit">Reddit Subreddits</option>
-                    <option value="twitter">X / Twitter</option>
-                    <option value="telegram">Telegram Channels</option>
-                    <option value="instagram">Instagram Scrape</option>
-                    <option value="youtube">YouTube Feeds</option>
-                    <option value="facebook">Facebook Pages</option>
-                  </select>
-                </div>
-
-                <div class="grid grid-cols-2 gap-3">
-                  <div>
-                    <label class="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Search Parameter</label>
-                    <select id="mode" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-2 text-xs text-white focus:outline-none focus:border-cyan-500">
-                      <option value="search">Keyword Query</option>
-                      <option value="profile">Profile Handle</option>
-                      <option value="hashtag">Hashtag (#)</option>
-                      <option value="location">Location ID</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label class="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Search Target</label>
-                    <input type="text" id="target" placeholder="e.g. surat, vesu" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-2 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-cyan-500 font-mono" required>
-                  </div>
-                </div>
-
-                <div class="grid grid-cols-2 gap-3">
-                  <div>
-                    <label class="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Post limit</label>
-                    <input type="number" id="limit" value="10" min="1" max="100" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-xs text-white font-mono">
-                  </div>
-                  <div>
-                    <label class="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Scroll Depth</label>
-                    <input type="number" id="depth" value="2" min="1" max="10" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-xs text-white font-mono">
-                  </div>
-                </div>
-
-                <button type="submit" id="submitBtn" class="w-full py-3 bg-gradient-to-r from-cyan-500 to-indigo-600 hover:from-cyan-600 hover:to-indigo-700 text-white font-bold text-xs rounded-xl transition duration-150 transform active:scale-95 shadow-md flex items-center justify-center gap-2">
-                  <span id="btnText">EXECUTE TARGETED EXTRACTION</span>
-                  <div id="loader" class="hidden w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                </button>
-              </form>
-            </div>
-
-            <!-- Monospace logs screen -->
-            <div class="glass p-4 rounded-3xl flex flex-col h-72">
-              <h4 class="text-xs font-bold text-slate-300 mb-2 font-mono flex items-center justify-between border-b border-slate-800/80 pb-2">
-                <span>&gt;_ ACTIVE PIPELINE STREAM</span>
-                <span class="text-[9px] text-slate-500">Telemetry logs</span>
-              </h4>
-              <div id="terminal" class="flex-1 bg-slate-950/80 border border-slate-900 rounded-xl p-3 font-mono text-[10px] text-cyan-400 overflow-y-auto space-y-1.5 leading-relaxed">
-                <div class="text-slate-500">System online. Waiting for targeted extraction parameters...</div>
-              </div>
-            </div>
-
-          </div>
-
-        </div>
-
-      </div>
-
-      <!-- Bottom Panel: Ingested Feed Table/List -->
-      <section class="glass p-6 rounded-3xl space-y-4">
-        <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center border-b border-slate-800/80 pb-4 mb-4 gap-4">
-          <h2 class="text-sm font-bold text-white uppercase tracking-wider font-mono flex items-center gap-2">
-            <svg xmlns="http://www.w3.org/2000/svg" class="h-5.5 w-5.5 text-cyan-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 10h16M4 14h16M4 18h16" />
-            </svg>
-            Comprehensive Intelligence Feed
-          </h2>
-          
-          <!-- Search & Filter Controls -->
-          <div class="flex flex-wrap items-center gap-2.5 text-xs">
-            <input type="text" id="feedSearch" placeholder="Search content..." class="bg-slate-950 border border-slate-850 rounded-lg px-3 py-2 text-white placeholder-slate-650 focus:outline-none focus:border-cyan-500 w-44">
-            
-            <select id="feedPlatform" class="bg-slate-950 border border-slate-850 rounded-lg px-2 py-2 text-white focus:outline-none focus:border-cyan-500">
-              <option value="">All Platforms</option>
-              <option value="reddit">Reddit</option>
-              <option value="twitter">X / Twitter</option>
-              <option value="telegram">Telegram</option>
-              <option value="instagram">Instagram</option>
-              <option value="youtube">YouTube</option>
-            </select>
-            
-            <select id="feedSeverity" class="bg-slate-950 border border-slate-850 rounded-lg px-2 py-2 text-white focus:outline-none focus:border-cyan-500">
-              <option value="">All Severities</option>
-              <option value="critical">Critical</option>
-              <option value="warning">Warning</option>
-              <option value="info">Info</option>
-              <option value="none">None</option>
-            </select>
-
-            <span id="feedCount" class="bg-cyan-500/20 text-cyan-400 font-bold px-2 py-1 rounded border border-cyan-500/30">0 items</span>
-          </div>
-        </div>
-
-        <!-- Scrollable Feed Results list -->
-        <div id="feedList" class="space-y-4 max-h-[600px] overflow-y-auto pr-1">
-          <div class="text-center py-20 text-slate-500 text-xs">Select filters or input query above to check matching data files.</div>
-        </div>
-      </section>
-
-    </div>
-  </div>
-
-  <!-- ==================== EVIDENTIARY REPORT PRINT MODAL (POPUP) ==================== -->
-  <div id="printModal" class="hidden fixed inset-0 z-50 overflow-y-auto bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4">
-    <div class="max-w-3xl w-full bg-slate-900 border border-slate-800 rounded-3xl shadow-2xl p-6 md:p-8 space-y-6 max-h-[90vh] overflow-y-auto relative">
-      
-      <!-- Close and Print headers -->
-      <div class="flex justify-between items-center no-print">
-        <button id="closePrintModal" class="px-4 py-2 bg-slate-800 text-slate-350 hover:bg-slate-700 hover:text-white rounded-lg text-xs font-bold transition">
-          ❌ Close Case File
-        </button>
-        <button id="executePrint" class="px-5 py-2.5 bg-cyan-600 hover:bg-cyan-500 text-white rounded-lg text-xs font-bold transition shadow-md flex items-center gap-1.5">
-          <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"/></svg>
-          Print/Save Certified PDF
-        </button>
-      </div>
-
-      <!-- printable document body -->
-      <div id="printModalContent" class="space-y-6 text-slate-100 font-sans p-6 border border-slate-800 rounded-2xl bg-slate-900/50">
-        <!-- Rendered dynamically -->
-      </div>
-    </div>
-  </div>
-
-  <!-- Footer block -->
-  <footer class="mt-auto border-t border-slate-900/80 px-6 py-4 glass text-center text-xs text-slate-500">
-    🛡️ Rakshak AI OSINT Command Platform • Developed for Surat Police Department • Hackathon Edition v1.0.0
-  </footer>
-
-  <!-- ==================== FRONT-END LOGIC & DATA INTEGRATION ==================== -->
-  <script>
-    const SURAT_LOCATIONS = {
-      'vesu': [72.7758, 21.1352],
-      'adajan': [72.7933, 21.1925],
-      'varachha': [72.8885, 21.2115],
-      'katargam': [72.8222, 21.2294],
-      'rander': [72.7845, 21.2185],
-      'dumas': [72.7126, 21.0763],
-      'dumas beach': [72.7126, 21.0763],
-      'chowk bazar': [72.8202, 21.2008],
-      'chowk': [72.8202, 21.2008],
-      'limbayat': [72.8612, 21.1714],
-      'udhana': [72.8423, 21.1685],
-      'dindoli': [72.8715, 21.1528],
-      'sarsana': [72.7661, 21.1554],
-      'pal': [72.7812, 21.1812],
-      'pal road': [72.7812, 21.1812],
-      'gopi talav': [72.8315, 21.1945],
-      'vip road': [72.7795, 21.1415]
-    };
-
-    let map = null;
-    let mapMarkers = [];
-    let jwtToken = localStorage.getItem('rakshak_token') || '';
-    let categoryChart = null;
-    let platformChart = null;
-    let officersList = [];
-
-    // Setup visual screens
-    if (jwtToken) {
-      document.getElementById('loginGate').classList.add('hidden');
-      document.getElementById('mainDashboard').classList.remove('hidden');
-      initDashboard();
-    }
-
-    // Handle authentication
-    document.getElementById('loginForm').addEventListener('submit', async (e) => {
-      e.preventDefault();
-      const username = document.getElementById('loginUser').value.trim();
-      const password = document.getElementById('loginPass').value;
-
-      try {
-        const res = await fetch('/auth/login', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ username, password })
-        });
-        const data = await res.json();
-        
-        if (!res.ok || !data.success) {
-          throw new Error(data.error || 'Authentication denied');
-        }
-
-        jwtToken = data.data.token;
-        localStorage.setItem('rakshak_token', jwtToken);
-        document.getElementById('officerName').textContent = data.data.user.username;
-        document.getElementById('loginGate').classList.add('hidden');
-        document.getElementById('mainDashboard').classList.remove('hidden');
-        
-        initDashboard();
-      } catch (err) {
-        const errDiv = document.getElementById('loginError');
-        errDiv.textContent = 'ACCESS DENIED: ' + err.message;
-        errDiv.classList.remove('hidden');
-      }
-    });
-
-    document.getElementById('logoutBtn').addEventListener('click', () => {
-      localStorage.removeItem('rakshak_token');
-      jwtToken = '';
-      document.getElementById('loginGate').classList.remove('hidden');
-      document.getElementById('mainDashboard').classList.add('hidden');
-      if (map) {
-        map.remove();
-        map = null;
-      }
-    });
-
-    // Operation Tab controls
-    const tabAlertsBtn = document.getElementById('tabAlertsBtn');
-    const tabCrawlerBtn = document.getElementById('tabCrawlerBtn');
-    const tabAlerts = document.getElementById('tabAlerts');
-    const tabCrawler = document.getElementById('tabCrawler');
-
-    tabAlertsBtn.addEventListener('click', () => {
-      tabAlerts.classList.remove('hidden');
-      tabCrawler.classList.add('hidden');
-      tabAlertsBtn.className = "flex-1 py-3 text-center rounded-lg bg-cyan-500/20 text-cyan-300 font-bold border border-cyan-500/20 uppercase tracking-wider transition";
-      tabCrawlerBtn.className = "flex-1 py-3 text-center rounded-lg hover:bg-slate-800 text-slate-400 hover:text-slate-300 uppercase tracking-wider transition";
-    });
-
-    tabCrawlerBtn.addEventListener('click', () => {
-      tabCrawler.classList.remove('hidden');
-      tabAlerts.classList.add('hidden');
-      tabCrawlerBtn.className = "flex-1 py-3 text-center rounded-lg bg-cyan-500/20 text-cyan-300 font-bold border border-cyan-500/20 uppercase tracking-wider transition";
-      tabAlertsBtn.className = "flex-1 py-3 text-center rounded-lg hover:bg-slate-800 text-slate-400 hover:text-slate-300 uppercase tracking-wider transition";
-    });
-
-    // Ingestion Log Telemetry Console Appender
-    function writeLog(message, type = 'info') {
-      const terminal = document.getElementById('terminal');
-      const time = new Date().toLocaleTimeString();
-      const logDiv = document.createElement('div');
-      
-      if (type === 'error') {
-        logDiv.className = 'text-red-400 font-semibold';
-      } else if (type === 'success') {
-        logDiv.className = 'text-emerald-400 font-semibold';
-      } else {
-        logDiv.className = 'text-cyan-400';
-      }
-
-      logDiv.innerHTML = \`<span class="text-slate-500">[\${time}]</span> \${message}\`;
-      terminal.appendChild(logDiv);
-      terminal.scrollTop = terminal.scrollHeight;
-    }
-
-    // Active Crawler Submissions
-    document.getElementById('crawlerForm').addEventListener('submit', async (e) => {
-      e.preventDefault();
-      const platform = document.getElementById('platform').value;
-      const mode = document.getElementById('mode').value;
-      const target = document.getElementById('target').value.trim();
-      const limit = parseInt(document.getElementById('limit').value, 10);
-      const depth = parseInt(document.getElementById('depth').value, 10);
-
-      const submitBtn = document.getElementById('submitBtn');
-      const btnText = document.getElementById('btnText');
-      const loader = document.getElementById('loader');
-
-      submitBtn.disabled = true;
-      btnText.textContent = "INGESTING ACTIVE INTELLIGENCE FEED...";
-      loader.classList.remove('hidden');
-
-      writeLog(\`LAUNCHING HEADLESS OSINT SCRAPER PROTOCOL FOR \${platform.toUpperCase()}...\`);
-      writeLog(\`Target Query target: "\${target}" (Scroll depth: \${depth}, post limit: \${limit})\`);
-
-      // Simulated scanning telemetries
-      setTimeout(() => writeLog(\`Stealth Webdriver bypass scripts injected successfully.\`), 800);
-      setTimeout(() => writeLog(\`Rotating residential proxies selected... routing through tunnel.\`), 1600);
-      setTimeout(() => writeLog(\`Parsing target profile DOM tree elements.\`), 2400);
-
-      try {
-        const res = await fetch('/api/crawler/extract', {
-          method: 'POST',
-          headers: { 
-            'Content-Type': 'application/json',
-            'Authorization': 'Bearer ' + jwtToken
-          },
-          body: JSON.stringify({ platform, mode, target, limit, depth })
-        });
-        const data = await res.json();
-
-        if (!res.ok || !data.success) {
-          throw new Error(data.error || 'Pipeline execution failed');
-        }
-
-        writeLog(\`Crawling completed successfully. Retrieved \${data.count} items.\`, 'success');
-        writeLog(\`Stored raw ingestion to raw_posts PostgreSQL table.\`, 'success');
-        writeLog(\`Running multilingual normalizations and threat alerts scoring...\`, 'success');
-
-        // Refreshes
-        setTimeout(() => {
-          writeLog(\`Active threats mapped. Incident feeds refreshed.\`, 'success');
-          loadAlerts();
-          loadFeed();
-          loadStats();
-        }, 800);
-
-      } catch (err) {
-        writeLog(\`Scraping failed: \${err.message}\`, 'error');
-        alert('Ingestion error: ' + err.message);
-      } finally {
-        submitBtn.disabled = false;
-        btnText.textContent = "EXECUTE TARGETED EXTRACTION";
-        loader.classList.add('hidden');
-      }
-    });
-
-    // Initialize Dashboard Elements
-    function initDashboard() {
-      // 1. Initialize Map
-      if (!map) {
-        map = L.map('map').setView([21.1702, 72.8311], 12); // Center of Surat
-        
-        // CartoDB Voyager tiles in Dark theme
-        L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-          attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>',
-          subdomains: 'abcd',
-          maxZoom: 20
-        }).addTo(map);
-      }
-
-      // Initial chart skeleton before data arrives
-      drawCategoryChart({});
-      drawPlatformChart({});
-
-      // Load static data
-      loadStats();
-      loadAlerts();
-      loadFeed();
-      loadOfficers();
-
-      // Poll updates automatically to simulate live updates
-      setInterval(() => {
-        if (jwtToken) {
-          loadStats();
-          loadAlerts();
-        }
-      }, 15000);
-    }
-
-    // Load registered police officers
-    async function loadOfficers() {
-      try {
-        const res = await fetch('/api/dashboard/officers', {
-          headers: { 'Authorization': 'Bearer ' + jwtToken }
-        });
-        const data = await res.json();
-        if (data.success) {
-          officersList = data.officers;
-        }
-      } catch (err) {
-        console.error('Failed to load officer list: ' + err.message);
-      }
-    }
-
-    // Load statistics and draw charts
-    async function loadStats() {
-      try {
-        const res = await fetch('/api/dashboard/stats', {
-          headers: { 'Authorization': 'Bearer ' + jwtToken }
-        });
-        const data = await res.json();
-        
-        if (!data.success) return;
-
-        const stats = data.stats || {};
-        const totalCrawled = stats.totalCrawled || 0;
-        const criticalAlerts = stats.criticalAlerts || 0;
-        const unresolvedAlerts = stats.unresolvedAlerts || 0;
-
-        document.getElementById('statTotal').textContent = totalCrawled;
-        document.getElementById('statCritical').textContent = criticalAlerts;
-        document.getElementById('statUnresolved').textContent = unresolvedAlerts;
-        document.getElementById('statGeolocated').textContent = Object.keys(SURAT_LOCATIONS).length;
-
-        // Emergency flashing alert banner trigger
-        if (criticalAlerts > 0) {
-          document.getElementById('emergencyTicker').classList.remove('hidden');
-          document.getElementById('statCriticalPulse').classList.remove('hidden');
-        } else {
-          document.getElementById('emergencyTicker').classList.add('hidden');
-          document.getElementById('statCriticalPulse').classList.add('hidden');
-        }
-
-        // Draw Category and Platform charts
-        drawCategoryChart(stats.categoryBreakdown || {});
-        drawPlatformChart(stats.platformBreakdown || {});
-
-      } catch (err) {
-        console.error('Failed to load stats', err);
-      }
-    }
-
-    // Render category bar chart
-    function drawCategoryChart(breakdown) {
-      const canvas = document.getElementById('categoryChart');
-      if (!canvas) return;
-      const ctx = canvas.getContext('2d');
-      const labels = ['violence', 'hate_speech', 'riot', 'road_safety', 'disaster', 'cyber_crime'];
-      const data = labels.map(l => breakdown && breakdown[l] ? breakdown[l] : 0);
-
-      const dataset = {
-        labels: ['Violence', 'Hate Speech', 'Riot/Protest', 'Road Safety', 'Disaster/Fire', 'Cyber Crime'],
-        datasets: [{
-          label: 'Incidents Count',
-          data,
-          backgroundColor: [
-            'rgba(239, 68, 68, 0.45)',  // Red
-            'rgba(244, 63, 94, 0.45)',  // Rose
-            'rgba(249, 115, 22, 0.45)', // Orange
-            'rgba(234, 179, 8, 0.45)',  // Yellow
-            'rgba(168, 85, 247, 0.45)', // Purple
-            'rgba(6, 182, 212, 0.45)'   // Cyan
-          ],
-          borderColor: [
-            '#ef4444', '#f43f5e', '#f97316', '#eab308', '#a855f7', '#06b6d4'
-          ],
-          borderWidth: 1.5,
-          borderRadius: 4
-        }]
-      };
-
-      if (categoryChart) {
-        categoryChart.data = dataset;
-        categoryChart.update();
-      } else {
-        categoryChart = new Chart(ctx, {
-          type: 'bar',
-          data: dataset,
-          options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            scales: {
-              y: { 
-                beginAtZero: true,
-                suggestedMax: 5,
-                grid: { color: 'rgba(255,255,255,0.05)' }, 
-                ticks: { color: '#94a3b8', stepSize: 1, precision: 0, font: { family: 'JetBrains Mono', size: 9 } } 
-              },
-              x: { 
-                grid: { display: false }, 
-                ticks: { color: '#94a3b8', font: { size: 9 } } 
-              }
-            },
-            plugins: {
-              legend: { display: false }
-            }
-          }
-        });
-      }
-    }
-
-    // Render platform doughnut chart
-    function drawPlatformChart(breakdown) {
-      const canvas = document.getElementById('platformChart');
-      if (!canvas) return;
-      const ctx = canvas.getContext('2d');
-      const labels = ['reddit', 'twitter', 'telegram', 'instagram', 'youtube'];
-      const rawData = labels.map(l => breakdown && breakdown[l] ? breakdown[l] : 0);
-      const total = rawData.reduce((a, b) => a + b, 0);
-
-      let dataset;
-      if (total === 0) {
-        // Fallback stylish empty ring when no data crawled yet
-        dataset = {
-          labels: ['Awaiting Crawl Feed'],
-          datasets: [{
-            data: [1],
-            backgroundColor: ['rgba(148, 163, 184, 0.12)'],
-            borderColor: 'rgba(255, 255, 255, 0.05)',
-            borderWidth: 2
-          }]
-        };
-      } else {
-        dataset = {
-          labels: ['Reddit', 'X/Twitter', 'Telegram', 'Instagram', 'YouTube'],
-          datasets: [{
-            data: rawData,
-            backgroundColor: [
-              'rgba(249, 115, 22, 0.65)', // Orange
-              'rgba(255, 255, 255, 0.65)', // White
-              'rgba(56, 189, 248, 0.65)', // Sky
-              'rgba(236, 72, 153, 0.65)', // Pink
-              'rgba(239, 68, 68, 0.65)'   // Red
-            ],
-            borderColor: '#0f172a',
-            borderWidth: 2
-          }]
-        };
-      }
-
-      if (platformChart) {
-        platformChart.data = dataset;
-        platformChart.options.plugins.tooltip = { enabled: total > 0 };
-        platformChart.update();
-      } else {
-        platformChart = new Chart(ctx, {
-          type: 'doughnut',
-          data: dataset,
-          options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            cutout: '70%',
-            plugins: {
-              legend: { 
-                position: 'right',
-                labels: { color: '#94a3b8', font: { size: 9, family: 'Outfit' } } 
-              },
-              tooltip: {
-                enabled: total > 0
-              }
-            }
-          }
-        });
-      }
-    }
-
-    // Load Active Alerts onto map and list
-    async function loadAlerts() {
-      try {
-        const res = await fetch('/api/dashboard/alerts', {
-          headers: { 'Authorization': 'Bearer ' + jwtToken }
-        });
-        const data = await res.json();
-        
-        if (!data.success) return;
-
-        const alerts = data.alerts;
-        document.getElementById('alertsCount').textContent = alerts.length;
-
-        // 1. Clear Map Markers
-        mapMarkers.forEach(m => map.removeLayer(m));
-        mapMarkers = [];
-
-        // 2. Render List & Place Map Markers
-        const container = document.getElementById('alertsList');
-        if (alerts.length === 0) {
-          container.innerHTML = \`<div class="text-center py-20 text-slate-500 text-xs">No active threat alerts in database.</div>\`;
-          return;
-        }
-
-        container.innerHTML = alerts.map(alert => {
-          const isCritical = alert.severity === 'critical';
-          const badgeClass = isCritical ? 'bg-red-500/20 text-red-400 border border-red-500/30' : 'bg-amber-500/20 text-amber-400 border border-amber-500/30';
-          
-          let statusColor = 'text-slate-400';
-          if (alert.status === 'investigating') statusColor = 'text-indigo-400';
-          if (alert.status === 'resolved') statusColor = 'text-emerald-400';
-
-          // Geolocate marker configuration
-          if (alert.locationGeom && alert.locationGeom.coordinates) {
-            const coords = alert.locationGeom.coordinates; // [lng, lat]
-            const markerColor = isCritical ? '#ef4444' : '#f59e0b';
-            
-            const circleMarker = L.circleMarker([coords[1], coords[0]], {
-              radius: isCritical ? 9 : 7,
-              fillColor: markerColor,
-              color: '#fff',
-              weight: 1.5,
-              opacity: 0.9,
-              fillOpacity: 0.75
-            }).addTo(map);
-
-            circleMarker.bindPopup(\`
-              <div style="font-family: 'Outfit', sans-serif; color: #1e293b; font-size: 11px;">
-                <strong style="color: \${markerColor}; font-size: 12px;">\${alert.severity.toUpperCase()} ALERT</strong><br/>
-                <strong>Source:</strong> @\${alert.post.author} (\${alert.post.source})<br/>
-                <strong>Threat:</strong> \${alert.post.threatCategory.toUpperCase()} (\${Math.round(alert.post.threatScore * 100)}%)<br/>
-                <strong>Desc:</strong> \${alert.post.translatedContent.substring(0, 70)}...
-              </div>
-            \`);
-
-            mapMarkers.push(circleMarker);
-          }
-
-          return \`
-            <div class="p-4 bg-slate-950/80 border border-slate-900 rounded-2xl hover:border-slate-800 transition space-y-3">
-              <div class="flex justify-between items-start">
-                <span class="text-[9px] font-bold px-2 py-0.5 rounded uppercase tracking-wider font-mono \${badgeClass}">\${alert.severity}</span>
-                <span class="text-[10px] font-mono text-slate-500">\${new Date(alert.createdAt).toLocaleTimeString()}</span>
-              </div>
-              
-              <div>
-                <h4 class="text-xs font-bold text-white mb-0.5">@\${alert.post.author} (\${alert.post.source})</h4>
-                <p class="text-xs text-slate-350 leading-relaxed font-sans">\${alert.post.translatedContent}</p>
-              </div>
-
-              <!-- Case Assignment control -->
-              <div class="pt-2.5 border-t border-slate-900 flex flex-wrap gap-3 items-center justify-between text-[11px] font-mono">
-                <div>
-                  <span class="text-slate-500">Officer:</span>
-                  <select onchange="assignOfficer(\${alert.id}, this.value)" class="bg-slate-900 border border-slate-800 text-slate-300 rounded px-1.5 py-0.5 focus:outline-none">
-                    <option value="null">Unassigned</option>
-                    \${officersList.map(o => \`<option value="\${o.id}" \${alert.assignedOfficerId === o.id ? 'selected' : ''}>\${o.username}</option>\`).join('')}
-                  </select>
-                </div>
-
-                <div>
-                  <span class="text-slate-500">Status:</span>
-                  <select onchange="updateAlertStatus(\${alert.id}, this.value)" class="bg-slate-900 border border-slate-800 \${statusColor} rounded px-1.5 py-0.5 focus:outline-none font-bold">
-                    <option value="pending" \${alert.status === 'pending' ? 'selected' : ''}>Pending</option>
-                    <option value="investigating" \${alert.status === 'investigating' ? 'selected' : ''}>Investigating</option>
-                    <option value="resolved" \${alert.status === 'resolved' ? 'selected' : ''}>Resolved</option>
-                    <option value="dismissed" \${alert.status === 'dismissed' ? 'selected' : ''}>Dismissed</option>
-                  </select>
-                </div>
-
-                <button onclick="openEvidenceReport(\${alert.id})" class="text-cyan-400 hover:underline hover:text-cyan-300 flex items-center gap-0.5">
-                  📁 Case File
-                </button>
-              </div>
-            </div>
-          \`;
-        }).join('');
-
-      } catch (err) {
-        console.error('Failed to load alerts', err);
-      }
-    }
-
-    // Assign alert to officer
-    async function assignOfficer(alertId, officerId) {
-      try {
-        const body = { assignedOfficerId: officerId === 'null' ? null : parseInt(officerId, 10) };
-        const res = await fetch(\`/api/dashboard/alerts/\${alertId}\`, {
-          method: 'PUT',
-          headers: { 
-            'Content-Type': 'application/json',
-            'Authorization': 'Bearer ' + jwtToken
-          },
-          body: JSON.stringify(body)
-        });
-        if (res.ok) {
-          loadAlerts();
-          loadStats();
-        }
-      } catch (err) {
-        alert('Failed to assign officer: ' + err.message);
-      }
-    }
-
-    // Change alert status
-    async function updateAlertStatus(alertId, status) {
-      try {
-        const res = await fetch(\`/api/dashboard/alerts/\${alertId}\`, {
-          method: 'PUT',
-          headers: { 
-            'Content-Type': 'application/json',
-            'Authorization': 'Bearer ' + jwtToken
-          },
-          body: JSON.stringify({ status })
-        });
-        if (res.ok) {
-          loadAlerts();
-          loadStats();
-        }
-      } catch (err) {
-        alert('Failed to update status: ' + err.message);
-      }
-    }
-
-    // Load Ingested Feed List
-    async function loadFeed() {
-      const search = document.getElementById('feedSearch').value.trim();
-      const platform = document.getElementById('feedPlatform').value;
-      const severity = document.getElementById('feedSeverity').value;
-
-      try {
-        let url = '/api/dashboard/feed?';
-        if (search) url += \`query=\${encodeURIComponent(search)}&\`;
-        if (platform) url += \`platform=\${platform}&\`;
-        if (severity) url += \`severity=\${severity}&\`;
-
-        const res = await fetch(url, {
-          headers: { 'Authorization': 'Bearer ' + jwtToken }
-        });
-        const data = await res.json();
-        
-        if (!data.success) return;
-
-        const feed = data.feed;
-        document.getElementById('feedCount').textContent = feed.length;
-
-        const container = document.getElementById('feedList');
-        if (feed.length === 0) {
-          container.innerHTML = \`<div class="text-center py-20 text-slate-650 text-xs">No records found matching current query parameters.</div>\`;
-          return;
-        }
-
-        container.innerHTML = feed.map(item => {
-          const isCritical = item.threatLabel === 'critical';
-          const isWarning = item.threatLabel === 'warning';
-          
-          let borderClass = 'border-slate-900';
-          let tagClass = 'bg-slate-800 text-slate-400';
-          if (isCritical) {
-            borderClass = 'border-red-950/60 hover:border-red-900';
-            tagClass = 'bg-red-500/10 text-red-400 border border-red-500/20';
-          } else if (isWarning) {
-            borderClass = 'border-amber-950/60 hover:border-amber-900';
-            tagClass = 'bg-amber-500/10 text-amber-400 border border-amber-500/20';
-          }
-
-          const hasLocs = item.namedEntities.locations && item.namedEntities.locations.length > 0;
-          const locPills = hasLocs ? item.namedEntities.locations.map(l => \`<span class="px-1.5 py-0.5 bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 rounded font-bold uppercase text-[9px] font-mono">\${l}</span>\`).join(' ') : '';
-
-          return \`
-            <div class="p-4 bg-slate-900/40 border \${borderClass} rounded-2xl hover:bg-slate-900/60 transition space-y-3">
-              <div class="flex justify-between items-start flex-wrap gap-2">
-                <div class="flex items-center space-x-2">
-                  <span class="text-[9px] font-bold px-2 py-0.5 bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 rounded-md uppercase font-mono">\${item.source}</span>
-                  <span class="text-xs text-slate-400 font-semibold">Author: @\${item.author}</span>
-                </div>
-                <div class="flex items-center space-x-2">
-                  \${locPills}
-                  <span class="text-[9px] font-mono font-bold px-2 py-0.5 rounded-md \${tagClass} uppercase">\${item.threatLabel} threat</span>
-                  <span class="text-xs font-mono text-slate-500">\${new Date(item.publishedAt).toLocaleString()}</span>
-                </div>
-              </div>
-
-              <div>
-                \${item.title ? \`<h4 class="text-xs font-bold text-white mb-1">\${item.title}</h4>\` : ''}
-                
-                <!-- Side by side original and translation if needed -->
-                \${item.originalLanguage !== 'english' ? \`
-                  <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2">
-                    <div class="p-2.5 bg-slate-950/50 rounded-xl border border-slate-900/80">
-                      <div class="text-[9px] text-slate-500 font-bold font-mono uppercase mb-1">Original (\${item.originalLanguage.toUpperCase()}):</div>
-                      <p class="text-xs text-slate-400 leading-relaxed italic">"\${item.content}"</p>
-                    </div>
-                    <div class="p-2.5 bg-slate-950/50 rounded-xl border border-slate-900/80">
-                      <div class="text-[9px] text-cyan-500 font-bold font-mono uppercase mb-1">Normalized English translation:</div>
-                      <p class="text-xs text-slate-200 leading-relaxed font-sans">"\${item.translatedContent}"</p>
-                    </div>
-                  </div>
-                \` : \`
-                  <p class="text-xs text-slate-300 leading-relaxed font-sans">"\${item.content}"</p>
-                \`}
-              </div>
-
-              <div class="flex items-center justify-between border-t border-slate-900/80 pt-3 text-[10px] text-slate-500 font-mono">
-                <div class="flex items-center space-x-4">
-                  <span>Sentiment Score: <strong class="\${item.sentimentLabel === 'negative' ? 'text-rose-400' : 'text-slate-400'}">\${parseFloat(item.sentimentScore).toFixed(2)} (\${item.sentimentLabel})</strong></span>
-                  <span>Threat score: <strong>\${(item.threatScore * 100).toFixed(0)}% (\${item.threatCategory})</strong></span>
-                </div>
-                <a href="\${item.url}" target="_blank" class="text-cyan-400 hover:underline">View original source post ➡️</a>
-              </div>
-            </div>
-          \`;
-        }).join('');
-
-      } catch (err) {
-        console.error('Failed to load feed list', err);
-      }
-    }
-
-    // Attach search and filter events to feed
-    document.getElementById('feedSearch').addEventListener('input', loadFeed);
-    document.getElementById('feedPlatform').addEventListener('change', loadFeed);
-    document.getElementById('feedSeverity').addEventListener('change', loadFeed);
-
-    // Evidentiary reports case file generator
-    async function openEvidenceReport(alertId) {
-      try {
-        const res = await fetch(\`/api/dashboard/reports/\${alertId}\`, {
-          headers: { 'Authorization': 'Bearer ' + jwtToken }
-        });
-        const data = await res.json();
-        
-        if (!data.success) {
-          throw new Error(data.error || 'Failed to load case file details');
-        }
-
-        const rep = data.report;
-        const coordinates = rep.location ? \`Latitude: \${rep.location.latitude}, Longitude: \${rep.location.longitude}\` : 'Geographical coordinates not resolved';
-        const assignedOfficer = rep.officer ? \`\${rep.officer.name} (\${rep.officer.role} - \${rep.officer.email})\` : 'UNASSIGNED';
-
-        const printHTML = ${bt}
-          <!-- Print Layout Header -->
-          <div class="flex justify-between items-center border-b border-slate-800 pb-4">
-            <div class="flex items-center space-x-3">
-              <div class="text-cyan-400 bg-cyan-500/10 p-2.5 rounded-xl border border-cyan-500/20 font-bold uppercase font-mono text-sm">
-                SURAT CELL
-              </div>
-              <div>
-                <h2 class="text-lg font-bold text-white">EVIDENTIARY INTELLIGENCE BRIEF</h2>
-                <p class="text-[10px] text-slate-400 uppercase tracking-widest font-mono">Surat City Police Cyber Crime OSINT Unit</p>
-              </div>
-            </div>
-            <div class="text-right font-mono">
-              <div class="text-xs font-bold text-cyan-400">\${rep.caseId}</div>
-              <div class="text-[9px] text-slate-500">DIGITAL AUDIT CLASSIFIED</div>
-            </div>
-          </div>
-
-          <!-- Ingestion telemetry metadata -->
-          <div class="grid grid-cols-2 gap-4 text-xs font-mono py-2">
-            <div class="space-y-1">
-              <div><span class="text-slate-500">CASE INDEX:</span> <strong class="text-white">\${rep.caseId}</strong></div>
-              <div><span class="text-slate-500">SOURCE PORTAL:</span> <strong class="text-white uppercase">\${rep.post.source}</strong></div>
-              <div><span class="text-slate-500">AUTHOR / PROFILE:</span> <strong class="text-cyan-400">@\${rep.post.author}</strong></div>
-              <div><span class="text-slate-500">POST HASH MATCH:</span> <span class="text-amber-400 break-all">\${rep.post.contentHash}</span></div>
-            </div>
-            <div class="space-y-1">
-              <div><span class="text-slate-500">INGEST TIMESTAMP:</span> <strong class="text-white">\${new Date(rep.post.crawledAt).toLocaleString()}</strong></div>
-              <div><span class="text-slate-500">ORIGINAL PUBLISHED:</span> <strong class="text-white">\${new Date(rep.post.publishedAt).toLocaleString()}</strong></div>
-              <div><span class="text-slate-500">GEOLOCATION PLOT:</span> <strong class="text-white">\${coordinates}</strong></div>
-              <div><span class="text-slate-500">ASSIGNED INVESTIGATOR:</span> <strong class="text-indigo-400">\${assignedOfficer}</strong></div>
-            </div>
-          </div>
-
-          <!-- Original Content Context -->
-          <div class="space-y-2 p-4 bg-slate-950/80 border border-slate-900 rounded-xl">
-            <h4 class="text-xs font-bold text-slate-400 uppercase tracking-wider font-mono">1. Original Social Media Ingest</h4>
-            \${rep.post.title ? \`<div class="text-xs font-bold text-white mb-1">Title: \${rep.post.title}</div>\` : ''}
-            <p class="text-xs text-slate-300 leading-relaxed font-sans">"\${rep.post.content}"</p>
-          </div>
-
-          <!-- Multilingual Translation details -->
-          \${rep.analysis.originalLanguage !== 'english' ? \`
-            <div class="space-y-2 p-4 bg-slate-950/80 border border-slate-900 rounded-xl">
-              <h4 class="text-xs font-bold text-cyan-400 uppercase tracking-wider font-mono">2. Multilingual Normalization Summary</h4>
-              <div class="text-[10px] text-slate-500 font-mono">Detected source language: <strong class="text-white uppercase">\${rep.analysis.originalLanguage}</strong></div>
-              <p class="text-xs text-slate-200 leading-relaxed font-sans">"\${rep.analysis.translatedContent}"</p>
-            </div>
-          \` : ''}
-
-          <!-- AI Threat Analytics Audit -->
-          <div class="space-y-3 p-4 bg-slate-950/80 border border-slate-900 rounded-xl">
-            <h4 class="text-xs font-bold text-slate-400 uppercase tracking-wider font-mono">3. Automated NLP Threat Assessment</h4>
-            <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 text-xs font-mono">
-              <div>
-                <span class="text-slate-500">Threat Category:</span><br/>
-                <strong class="text-white uppercase">\${rep.analysis.threatCategory}</strong>
-              </div>
-              <div>
-                <span class="text-slate-500">Threat probability:</span><br/>
-                <strong class="text-white">\${(rep.analysis.threatScore * 100).toFixed(0)}%</strong>
-              </div>
-              <div>
-                <span class="text-slate-500">Threat Severity:</span><br/>
-                <strong class="text-red-400 uppercase">\${rep.analysis.threatLabel}</strong>
-              </div>
-              <div>
-                <span class="text-slate-500">Sentiment Score:</span><br/>
-                <strong class="text-white">\${rep.analysis.sentimentScore.toFixed(2)} (\${rep.analysis.sentimentLabel})</strong>
-              </div>
-            </div>
-
-            <!-- Entities details -->
-            <div class="pt-2 border-t border-slate-900/60 text-xs font-mono space-y-1">
-              <div><span class="text-slate-500">Identified Locations:</span> <span class="text-indigo-300 uppercase">\${rep.analysis.namedEntities.locations.join(', ') || 'None flagged'}</span></div>
-              <div><span class="text-slate-500">Identified Organizations:</span> <span class="text-slate-300 font-sans">\${rep.analysis.namedEntities.organizations.join(', ') || 'None flagged'}</span></div>
-            </div>
-          </div>
-
-          <!-- Chain of Custody Legal notice -->
-          <div class="text-[10px] text-slate-500 font-mono text-justify border-t border-slate-900/80 pt-4 leading-relaxed">
-            <strong>CRITICAL CHAIN-OF-CUSTODY NOTICE:</strong> \${rep.legalNotice}
-          </div>
-
-          <!-- Signature Blocks for Legal Validation -->
-          <div class="grid grid-cols-2 gap-10 pt-16 font-mono text-xs text-center">
-            <div class="space-y-4">
-              <div class="border-t border-slate-700/60 pt-2 text-slate-500">Assigned Investigating Officer</div>
-              <div class="text-[10px] text-slate-400 font-bold uppercase">\${rep.officer ? rep.officer.name : 'UNASSIGNED'}</div>
-            </div>
-            <div class="space-y-4">
-              <div class="border-t border-slate-700/60 pt-2 text-slate-500">Surat Police Cyber Cell Director</div>
-              <div class="text-[10px] text-slate-400 font-bold uppercase">CP Digital Authenticator Signature</div>
-            </div>
-          </div>
-        ${bt};
-
-        document.getElementById('printModalContent').innerHTML = printHTML;
-        document.getElementById('printModal').classList.remove('hidden');
-
-      } catch (err) {
-        alert('Failed to generate evidentiary brief: ' + err.message);
-      }
-    }
-
-    // Close and print report modal triggers
-    document.getElementById('closePrintModal').addEventListener('click', () => {
-      document.getElementById('printModal').classList.add('hidden');
-    });
-
-    document.getElementById('executePrint').addEventListener('click', () => {
-      const content = document.getElementById('printModalContent').innerHTML;
-      const iframe = document.createElement('iframe');
-      iframe.style.position = 'fixed';
-      iframe.style.right = '0';
-      iframe.style.bottom = '0';
-      iframe.style.width = '0';
-      iframe.style.height = '0';
-      iframe.style.border = '0';
-      document.body.appendChild(iframe);
-      
-      const doc = iframe.contentWindow.document;
-      doc.write(${bt}
-        <html>
-          <head>
-            <title>Evidentiary Case Report</title>
-            <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
-            <script src="https://cdn.tailwindcss.com"><\\/script>
-            <style>
-              body {
-                background: white !important;
-                color: black !important;
-                font-family: 'Outfit', sans-serif;
-                padding: 30px;
-              }
-              * {
-                background: transparent !important;
-                color: black !important;
-                border-color: #cbd5e1 !important;
-              }
-              h2, h4, strong {
-                color: #0f172a !important;
-                font-weight: bold !important;
-              }
-              p, span, div {
-                color: #1e293b !important;
-              }
-              .text-cyan-400, .text-indigo-400, .text-amber-400, .text-red-400 {
-                color: #000000 !important;
-                font-weight: bold !important;
-              }
-              .bg-slate-950\\\\/80, .bg-slate-950, .bg-slate-900\\\\/50, .bg-slate-950\\\\/50 {
-                background: #f8fafc !important;
-                border: 1px solid #cbd5e1 !important;
-                border-radius: 12px !important;
-                padding: 16px !important;
-              }
-              .no-print {
-                display: none !important;
-              }
-            </style>
-          </head>
-          <body>
-            ${'${content}'}
-          </body>
-        </html>
-      ${bt});
-      doc.close();
-      
-      iframe.contentWindow.focus();
-      setTimeout(() => {
-        iframe.contentWindow.print();
-        document.body.removeChild(iframe);
-      }, 500);
-    });
-
-  </script>
-</body>
-</html>`;
-
+  }
   reply.type('text/html').send(html);
 });
 

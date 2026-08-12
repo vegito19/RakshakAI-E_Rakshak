@@ -121,6 +121,84 @@ export async function initializeDatabase(): Promise<void> {
       logger.debug('fk_alerts_assigned_officer constraint already exists.', 'DatabaseInit');
     }
 
+    // 7. Create CrimeOS Cases Table
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS cases (
+          id SERIAL PRIMARY KEY,
+          case_number VARCHAR(100) UNIQUE NOT NULL,
+          fir_number VARCHAR(100),
+          title VARCHAR(255) NOT NULL,
+          police_station VARCHAR(100) DEFAULT 'Cyber Crime Branch Surat' NOT NULL,
+          investigating_officer VARCHAR(100) NOT NULL,
+          status VARCHAR(30) DEFAULT 'ACTIVE_INVESTIGATION' NOT NULL,
+          threat_level VARCHAR(20) DEFAULT 'HIGH' NOT NULL,
+          applicable_bns_sections JSONB DEFAULT '[]'::jsonb NOT NULL,
+          incident_summary TEXT,
+          created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP NOT NULL,
+          updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP NOT NULL
+      );
+    `);
+    await client.query('CREATE INDEX IF NOT EXISTS idx_cases_case_number ON cases(case_number);');
+    await client.query('CREATE INDEX IF NOT EXISTS idx_cases_status ON cases(status);');
+
+    // 8. Create Suspects Table
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS suspects (
+          id SERIAL PRIMARY KEY,
+          case_id INTEGER REFERENCES cases(id) ON DELETE CASCADE,
+          name VARCHAR(150) NOT NULL,
+          alias VARCHAR(100),
+          phone_numbers JSONB DEFAULT '[]'::jsonb,
+          social_handles JSONB DEFAULT '[]'::jsonb,
+          threat_score NUMERIC(5, 4) DEFAULT 0.5,
+          notes TEXT,
+          created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP NOT NULL
+      );
+    `);
+
+    // 9. Create Evidence Items Table
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS evidence_items (
+          id SERIAL PRIMARY KEY,
+          case_id INTEGER REFERENCES cases(id) ON DELETE CASCADE,
+          item_type VARCHAR(50) NOT NULL,
+          filename VARCHAR(255) NOT NULL,
+          file_hash_sha256 VARCHAR(64) NOT NULL,
+          file_hash_md5 VARCHAR(32) NOT NULL,
+          metadata JSONB NOT NULL,
+          created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP NOT NULL
+      );
+    `);
+
+    // 10. Create CDR Records Table
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS cdr_records (
+          id SERIAL PRIMARY KEY,
+          case_id INTEGER REFERENCES cases(id) ON DELETE CASCADE,
+          calling_number VARCHAR(30) NOT NULL,
+          called_number VARCHAR(30) NOT NULL,
+          call_time TIMESTAMP WITH TIME ZONE NOT NULL,
+          duration_sec INTEGER NOT NULL,
+          call_type VARCHAR(20) NOT NULL,
+          first_cell_id VARCHAR(50),
+          imei VARCHAR(30),
+          imsi VARCHAR(30),
+          created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP NOT NULL
+      );
+    `);
+
+    // 11. Create Dark Web Watchlists Table
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS darkweb_watchlists (
+          id SERIAL PRIMARY KEY,
+          keyword VARCHAR(150) UNIQUE NOT NULL,
+          category VARCHAR(50) NOT NULL,
+          priority VARCHAR(20) DEFAULT 'HIGH' NOT NULL,
+          hits_count INTEGER DEFAULT 0 NOT NULL,
+          last_scanned_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP NOT NULL
+      );
+    `);
+
     logger.info('Database schema initialization completed successfully.', 'DatabaseInit');
   } catch (error) {
     logger.error('Database initialization encountered a fatal error.', error as Error, 'DatabaseInit');

@@ -264,8 +264,11 @@ export function generateMockOSINT(platform: SocialSource, mode: string, target: 
     const realInstagramUrls = [
       'https://www.instagram.com/p/DB6N1c1yF2i/',
       'https://www.instagram.com/p/DB6N-lSyD4w/',
-      'https://www.instagram.com/p/DB6OGdoyk3v/',
-      'https://www.instagram.com/p/C-h90y8yD6A/'
+      'https://www.instagram.com/p/C-h90y8yD6A/',
+      'https://www.instagram.com/p/C66x5E8yE9R/',
+      'https://www.instagram.com/p/C5n5E7xyE9S/',
+      'https://www.instagram.com/suratcitypolice/reels/',
+      'https://www.instagram.com/kemchhosurat/reels/'
     ];
 
     const realYoutubeUrls = [

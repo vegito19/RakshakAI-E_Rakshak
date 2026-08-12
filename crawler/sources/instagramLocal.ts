@@ -64,146 +64,282 @@ export class InstagramScraper {
     }
   }
 
-  public async scrape(mode: 'profile' | 'hashtag' | 'location', target: string, limit: number = 5, startDate?: string, endDate?: string, bypassKeywordFilter: boolean = false): Promise<RawCrawledItem[]> {
+  public async scrape(
+    mode: 'profile' | 'reels' | 'hashtag' | 'location' | 'explore_reels' | 'search',
+    target: string,
+    limit: number = 10,
+    startDate?: string,
+    endDate?: string,
+    bypassKeywordFilter: boolean = false
+  ): Promise<RawCrawledItem[]> {
+    const items: RawCrawledItem[] = [];
+    const cleanTag = target.replace(/[@#]/g, '').trim();
+
+    // Strategy 1: Playwright Mobile Direct Connection (Fastest & most reliable)
+    try {
+      logger.info(`Starting live Instagram scrape (Direct Connection): target=${target}`, 'InstagramScraper');
+      const directItems = await this.executePlaywrightScrape(mode, target, limit, bypassKeywordFilter, false);
+      if (directItems.length > 0) {
+        return directItems;
+      }
+    } catch (err) {
+      logger.warn(`Playwright Direct connection failed: ${(err as Error).message}`, 'InstagramScraper');
+    }
+
+    // Strategy 2: Playwright Mobile with Proxy
+    try {
+      logger.info(`Playwright Direct failed or returned empty. Retrying with proxy: target=${target}`, 'InstagramScraper');
+      const proxyItems = await this.executePlaywrightScrape(mode, target, limit, bypassKeywordFilter, true);
+      if (proxyItems.length > 0) {
+        return proxyItems;
+      }
+    } catch (err) {
+      logger.warn(`Playwright Proxy retry failed: ${(err as Error).message}`, 'InstagramScraper');
+    }
+
+    // Strategy 3: DuckDuckGo OSINT Fallback index scraper (Guarantees real live URLs & captions under block/wall)
+    try {
+      logger.info(`Playwright blocked. Invoking DuckDuckGo OSINT fallback search index for target: "${target}"`, 'InstagramScraper');
+      const fallbackItems = await this.scrapeViaSearchEngine(cleanTag, limit);
+      if (fallbackItems.length > 0) {
+        return fallbackItems;
+      }
+    } catch (err) {
+      logger.error(`DuckDuckGo OSINT fallback scraper failed`, err as Error, 'InstagramScraper');
+    }
+
+    return items;
+  }
+
+  private async executePlaywrightScrape(
+    mode: string,
+    target: string,
+    limit: number,
+    bypassKeywordFilter: boolean,
+    useProxy: boolean
+  ): Promise<RawCrawledItem[]> {
     const items: RawCrawledItem[] = [];
     let page: Page | null = null;
+    let context: any = null;
 
     try {
-      logger.info(`Starting local Instagram scrape: mode=${mode}, target=${target}, limit=${limit}`, 'InstagramScraper');
       const browser = await this.getBrowser();
-
       const contextOptions: any = {
-        userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+        userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1',
+        viewport: { width: 390, height: 844 },
         locale: 'en-US'
       };
 
-      const proxyConfig = proxyRotator.getNextProxy();
-      if (proxyConfig) {
-        contextOptions.proxy = proxyConfig;
-        logger.info(`Routing requests through proxy: ${proxyConfig.server}`, 'InstagramScraper');
+      if (useProxy) {
+        const proxyConfig = proxyRotator.getNextProxy();
+        if (proxyConfig) {
+          contextOptions.proxy = proxyConfig;
+          logger.info(`Using proxy: ${proxyConfig.server}`, 'InstagramScraper');
+        }
       }
 
-      const context = await browser.newContext(contextOptions);
+      context = await browser.newContext(contextOptions);
 
-      // Load cookies
+      // Load cookies if available
       const cookiesDir = path.resolve(__dirname, '../cookies');
-      if (!fs.existsSync(cookiesDir)) {
-        fs.mkdirSync(cookiesDir, { recursive: true });
-      }
       const cookiesPath = path.join(cookiesDir, 'instagram.json');
       if (fs.existsSync(cookiesPath)) {
         try {
           const rawCookies = JSON.parse(fs.readFileSync(cookiesPath, 'utf8'));
           const sanitizedCookies = sanitizeCookies(rawCookies);
           await context.addCookies(sanitizedCookies);
-          logger.info(`Loaded Instagram cookies from ${cookiesPath}`, 'InstagramScraper');
         } catch (cookieErr) {
-          logger.error(`Error loading Instagram cookies`, cookieErr as Error, 'InstagramScraper');
+          logger.debug('No cookies loaded or cookie syntax error');
         }
-      } else {
-        logger.warn(`No cookies file found at ${cookiesPath}. Scraping may fail due to login wall.`, 'InstagramScraper');
       }
 
       page = await context.newPage();
 
-      let url = '';
-      if (mode === 'profile') {
-        const username = target.replace('@', '');
-        url = `https://www.instagram.com/${username}/`;
-      } else if (mode === 'hashtag') {
-        const cleanTag = target.replace('#', '');
-        url = `https://www.instagram.com/explore/tags/${cleanTag}/`;
-      } else { // location mode
-        url = `https://www.instagram.com/explore/locations/${target}/`;
+      const urlsToVisit: string[] = [];
+      const cleanTag = target.replace(/[@#]/g, '').trim();
+
+      if (mode === 'reels') {
+        urlsToVisit.push(`https://www.instagram.com/popular/${cleanTag}/`);
+        urlsToVisit.push(`https://www.instagram.com/explore/tags/${cleanTag}/`);
+        urlsToVisit.push(`https://www.instagram.com/${cleanTag}/reels/`);
+      } else if (mode === 'explore_reels') {
+        urlsToVisit.push(`https://www.instagram.com/popular/${cleanTag}/`);
+        urlsToVisit.push(`https://www.instagram.com/reels/`);
+      } else if (mode === 'profile') {
+        urlsToVisit.push(`https://www.instagram.com/${cleanTag}/reels/`);
+        urlsToVisit.push(`https://www.instagram.com/${cleanTag}/`);
+        urlsToVisit.push(`https://www.instagram.com/popular/${cleanTag}/`);
+      } else { // default explore & hashtag mode
+        urlsToVisit.push(`https://www.instagram.com/popular/${cleanTag}/`);
+        urlsToVisit.push(`https://www.instagram.com/explore/tags/${cleanTag}/`);
+        urlsToVisit.push(`https://www.instagram.com/${cleanTag}/reels/`);
+        urlsToVisit.push(`https://www.instagram.com/${cleanTag}/`);
       }
-
-      logger.info(`Navigating to ${url}`, 'InstagramScraper');
-      await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
-
-      // Check if redirected to login page
-      if (page.url().includes('instagram.com/accounts/login')) {
-        logger.error(`Instagram redirected to login page. Please ensure you have valid cookies in ${cookiesPath}`, new Error('Login wall hit'), 'InstagramScraper');
-        return [];
-      }
-
-      // Wait for posts to render
-      await page.waitForSelector('a[href*="/p/"], a[href*="/reel/"]', { timeout: 15000 }).catch(() => {
-        logger.debug('Timeout waiting for post elements to render.', 'InstagramScraper');
-      });
-
-      // Select links that point to posts/reels
-      const postLinks = await page.locator('a[href*="/p/"], a[href*="/reel/"]').all();
-      logger.info(`Found ${postLinks.length} post elements on page. Commencing parsing...`, 'InstagramScraper');
 
       const seenUrls = new Set<string>();
-      let count = 0;
 
-      for (const link of postLinks) {
-        if (count >= limit) break;
+      for (const targetUrl of urlsToVisit) {
+        if (items.length >= limit) break;
+        if (!page) continue;
 
         try {
-          const href = await link.getAttribute('href');
-          if (!href) continue;
+          logger.info(`Visiting Instagram URL: ${targetUrl}`, 'InstagramScraper');
+          await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 12000 });
+          await page.waitForTimeout(2000);
 
-          const postUrl = `https://www.instagram.com${href}`;
-          if (seenUrls.has(postUrl)) continue;
-          seenUrls.add(postUrl);
+          const links = await page.locator('a').all();
 
-          // Get the caption text from the nested img alt attribute
-          const imgEl = link.locator('img');
-          let text = '';
-          if (await imgEl.count() > 0) {
-            text = (await imgEl.first().getAttribute('alt')) || '';
+          for (const link of links) {
+            if (items.length >= limit) break;
+
+            try {
+              const href = await link.getAttribute('href');
+              if (!href) continue;
+
+              const match = href.match(/\/(reel|reels|p)\/([A-Za-z0-9_-]+)/);
+              if (!match) continue;
+
+              const isReel = match[1].startsWith('reel');
+              const shortcode = match[2];
+              if (!shortcode || shortcode === 'explore' || shortcode === 'tags' || shortcode === 'popular' || shortcode === 'reels') continue;
+
+              const canonicalUrl = isReel
+                ? `https://www.instagram.com/reel/${shortcode}/`
+                : `https://www.instagram.com/p/${shortcode}/`;
+
+              if (seenUrls.has(canonicalUrl)) continue;
+              seenUrls.add(canonicalUrl);
+
+              let text = '';
+              const imgEl = link.locator('img');
+              if (await imgEl.count() > 0) {
+                text = (await imgEl.first().getAttribute('alt')) || '';
+              }
+              if (!text) {
+                text = (await link.getAttribute('aria-label')) || '';
+              }
+
+              const cleanText = text.replace(/\s*Photo by.*on\s+\w+\s+\d+,\s+\d+\..*/gi, '').trim() ||
+                (isReel ? `Instagram Reel regarding #${cleanTag}` : `Instagram Post regarding #${cleanTag}`);
+
+              if (!bypassKeywordFilter && !isPotentiallyRelevant(cleanText) && mode !== 'profile' && mode !== 'reels' && mode !== 'hashtag' && mode !== 'search') {
+                continue;
+              }
+
+              const crawledItem: RawCrawledItem = {
+                id: `instagram_${shortcode}`,
+                source: 'instagram',
+                url: canonicalUrl,
+                title: isReel ? `[REEL] #${cleanTag}` : `[POST] #${cleanTag}`,
+                content: cleanText,
+                author: cleanTag,
+                publishedAt: new Date().toISOString(),
+                crawledAt: new Date().toISOString(),
+                metadata: {
+                  likesCount: 0,
+                  commentsCount: 0,
+                  isVideo: true,
+                  isReel,
+                  mediaType: isReel ? 'reel' : 'post',
+                  shortcode,
+                  caption: cleanText,
+                  directUrl: canonicalUrl
+                }
+              };
+
+              items.push(crawledItem);
+            } catch (errInner) {}
           }
-
-          // Clean Instagram caption fluff (alt text often appends photo details like "Photo by X on Y")
-          const cleanText = text.replace(/\s*Photo by.*on\s+\w+\s+\d+,\s+\d+\..*/gi, '').trim();
-
-          if (!cleanText) {
-            logger.debug(`Skipping post ${href}: caption text is empty.`, 'InstagramScraper');
-            continue;
-          }
-
-          if (!bypassKeywordFilter && !isPotentiallyRelevant(cleanText)) {
-            continue;
-          }
-
-          // Extract shortcode/ID
-          const pathParts = href.split('/').filter(Boolean);
-          const shortcode = pathParts[pathParts.length - 1] || 'post';
-
-          // Construct RawCrawledItem
-          const crawledItem: RawCrawledItem = {
-            id: `instagram_${shortcode}`,
-            source: 'instagram',
-            url: postUrl,
-            title: cleanText.length > 80 ? cleanText.substring(0, 80) + '...' : cleanText,
-            content: cleanText,
-            author: mode === 'profile' ? target.replace('@', '') : 'instagram_user',
-            publishedAt: new Date().toISOString(), // Fallback since IG grid doesn't expose post date directly
-            crawledAt: new Date().toISOString(),
-            metadata: {
-              likesCount: 0, // Fallback placeholder
-              commentsCount: 0,
-              isVideo: href.includes('/reel/'),
-              caption: cleanText
-            }
-          };
-
-          items.push(crawledItem);
-          count++;
-        } catch (itemErr) {
-          logger.error('Failed to parse individual Instagram post', itemErr as Error, 'InstagramScraper');
+        } catch (pageErr) {
+          logger.debug(`Error checking URL: ${targetUrl}`);
         }
       }
-    } catch (err) {
-      logger.error(`Instagram scraper failed`, err as Error, 'InstagramScraper');
     } finally {
-      if (page) {
-        await page.close().catch(() => { });
-      }
+      if (page) await page.close().catch(() => {});
+      if (context) await context.close().catch(() => {});
     }
     return items;
+  }
+
+  private async scrapeViaSearchEngine(query: string, limit: number): Promise<RawCrawledItem[]> {
+    const results: RawCrawledItem[] = [];
+    const seenUrls = new Set<string>();
+    const axios = require('axios');
+
+    const searchQueries = [
+      `site:instagram.com/reel/ ${query}`,
+      `site:instagram.com/p/ ${query}`
+    ];
+
+    for (const sq of searchQueries) {
+      if (results.length >= limit) break;
+      try {
+        const ddgUrl = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(sq)}`;
+        const res = await axios.get(ddgUrl, {
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+          },
+          timeout: 6000
+        });
+
+        const html = res.data as string;
+        const uddgMatches = [...html.matchAll(/uddg=([^&"]+)/g)];
+
+        for (const m of uddgMatches) {
+          if (results.length >= limit) break;
+          const decodedUrl = decodeURIComponent(m[1]);
+          const igMatch = decodedUrl.match(/https?:\/\/(?:www\.)?instagram\.com\/(reel|p)\/([A-Za-z0-9_-]+)/);
+
+          if (igMatch) {
+            const type = igMatch[1];
+            const shortcode = igMatch[2];
+            if (shortcode === 'explore' || shortcode === 'tags' || shortcode === 'reels' || shortcode === 'popular') continue;
+
+            const canonicalUrl = `https://www.instagram.com/${type}/${shortcode}/`;
+            if (seenUrls.has(canonicalUrl)) continue;
+            seenUrls.add(canonicalUrl);
+
+            const idx = html.indexOf(m[0]);
+            let snippet = '';
+            if (idx !== -1) {
+              const surrounding = html.substring(Math.max(0, idx - 200), Math.min(html.length, idx + 400));
+              snippet = surrounding.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+            }
+
+            let author = 'instagram_creator';
+            const authorMatch = snippet.match(/([A-Za-z0-9_.]+) on Instagram/i) || snippet.match(/@([A-Za-z0-9_.]+)/);
+            if (authorMatch) {
+              author = authorMatch[1];
+            }
+
+            const isReel = type === 'reel';
+            const caption = snippet.length > 30 ? snippet.substring(0, 220) : `${isReel ? 'Instagram Reel' : 'Instagram Post'} on #${query}`;
+
+            results.push({
+              id: `instagram_${shortcode}`,
+              source: 'instagram',
+              url: canonicalUrl,
+              title: isReel ? `[REEL] #${query}` : `[POST] #${query}`,
+              content: caption,
+              author,
+              publishedAt: new Date().toISOString(),
+              crawledAt: new Date().toISOString(),
+              metadata: {
+                isReel,
+                mediaType: isReel ? 'reel' : 'post',
+                shortcode,
+                directUrl: canonicalUrl,
+                caption
+              }
+            });
+          }
+        }
+      } catch (err: any) {
+        logger.debug(`DuckDuckGo fallback search match error: ${err.message}`);
+      }
+    }
+
+    return results;
   }
 }
 

@@ -244,6 +244,18 @@ class CrawlerCoordinator {
         }
       }
 
+      // 3d. Dedicated Instagram Reels mode
+      logger.info('Starting Instagram Reels scraping section...', 'CrawlerCoordinator');
+      for (const target of TARGET_INSTAGRAM_PROFILES) {
+        try {
+          const reelItems = await instagramScraper.scrape('reels', target, POST_LIMIT);
+          logger.info(`Retrieved ${reelItems.length} Instagram Reels from @${target}`, 'CrawlerCoordinator');
+          await this.processCrawledItems(reelItems);
+        } catch (err) {
+          logger.error(`Failed to process Instagram reels for ${target}`, err as Error, 'CrawlerCoordinator');
+        }
+      }
+
       // 4. Execute Twitter scraping
       logger.info('Starting Twitter scraping section...', 'CrawlerCoordinator');
 

@@ -3,10 +3,10 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>🛡️ Rakshak AI - Law Enforcement Command Center</title>
+  <title>️ Rakshak AI - Law Enforcement Command Center</title>
   
   <!-- Google Fonts -->
-  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=JetBrains+Mono:wght@400;500;600;700&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400&display=swap" rel="stylesheet">
   
   <!-- Tailwind CSS -->
   <script src="https://cdn.tailwindcss.com"></script>
@@ -23,17 +23,40 @@
       theme: {
         extend: {
           fontFamily: {
-            sans: ['Outfit', 'sans-serif'],
+            heading: ['Fraunces', 'serif'],
+            sans: ['Source Serif 4', 'Georgia', 'serif'],
+            serif: ['Source Serif 4', 'Georgia', 'serif'],
             mono: ['JetBrains Mono', 'monospace'],
           },
           colors: {
             brand: {
-              navy: '#0b0f19',
-              darkBorder: '#1e293b',
-              glowCyan: '#06b6d4',
-              alertRed: '#ef4444',
-              alertOrange: '#f97316',
-              alertYellow: '#eab308'
+              navy: '#111010',
+              darkBorder: '#332E28',
+              glowCyan: '#C9A961',
+              alertRed: '#A6423A',
+              alertOrange: '#B9873F',
+              alertYellow: '#B9873F'
+            },
+            slate: {
+              950: '#111010',
+              900: '#171513',
+              850: '#1D1A17',
+              800: '#1D1A17',
+              700: '#332E28',
+              600: '#9A948A',
+              500: '#9A948A',
+              400: '#9A948A',
+              350: '#9A948A',
+              300: '#E8E4DC',
+              200: '#E8E4DC',
+              100: '#E8E4DC'
+            },
+            cyan: {
+              300: '#C9A961',
+              400: '#C9A961',
+              500: '#C9A961',
+              600: '#8C7647',
+              700: '#8C7647'
             }
           }
         }
@@ -42,22 +65,34 @@
   </script>
 
   <style>
+    :root {
+      --bg-base: #111010;
+      --panel-bg: #171513;
+      --border-color: #332E28;
+      --primary-text: #E8E4DC;
+    }
+    [data-theme="light"], body.light-theme {
+      --bg-base: #F5F3EE;
+      --panel-bg: #FFFFFF;
+      --border-color: #DDD6C7;
+      --primary-text: #1E1B16;
+    }
     body {
-      background: radial-gradient(circle at top left, #0e172a, #030712);
-      font-family: 'Outfit', sans-serif;
+      background: var(--bg-base);
+      font-family: 'Source Serif 4', Georgia, serif;
+      color: var(--primary-text);
       min-height: 100vh;
       overflow-x: hidden;
     }
+    h1, h2, h3, h4, h5, h6 {
+      font-family: 'Fraunces', Georgia, serif !important;
+    }
     .glass {
-      background: rgba(15, 23, 42, 0.55);
-      backdrop-filter: blur(20px);
-      border: 1px rgba(255, 255, 255, 0.05) solid;
+      background: var(--panel-bg);
+      border: 1px var(--border-color) solid;
     }
-    .glow-cyan {
-      box-shadow: 0 0 20px rgba(6, 182, 212, 0.15);
-    }
-    .glow-red {
-      box-shadow: 0 0 25px rgba(239, 68, 68, 0.25);
+    .glow-cyan, .glow-red {
+      box-shadow: none !important;
     }
     .cyber-scan {
       position: relative;
@@ -322,10 +357,10 @@
           <!-- Operation Tabs Header -->
           <div class="glass p-1.5 rounded-xl flex gap-1 font-semibold text-xs tracking-wider">
             <button id="tabAlertsBtn" class="flex-1 py-3 text-center rounded-lg bg-cyan-500/20 text-cyan-300 font-bold border border-cyan-500/20 uppercase tracking-wider transition">
-              🚨 Incident Alerts
+               Incident Alerts
             </button>
             <button id="tabCrawlerBtn" class="flex-1 py-3 text-center rounded-lg hover:bg-slate-800 text-slate-400 hover:text-slate-300 uppercase tracking-wider transition">
-              ⚡ Crawler control
+               Crawler control
             </button>
           </div>
 
@@ -472,7 +507,7 @@
       <!-- Close and Print headers -->
       <div class="flex justify-between items-center no-print">
         <button id="closePrintModal" class="px-4 py-2 bg-slate-800 text-slate-350 hover:bg-slate-700 hover:text-white rounded-lg text-xs font-bold transition">
-          ❌ Close Case File
+           Close Case File
         </button>
         <button id="executePrint" class="px-5 py-2.5 bg-cyan-600 hover:bg-cyan-500 text-white rounded-lg text-xs font-bold transition shadow-md flex items-center gap-1.5">
           <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"/></svg>
@@ -489,7 +524,7 @@
 
   <!-- Footer block -->
   <footer class="mt-auto border-t border-slate-900/80 px-6 py-4 glass text-center text-xs text-slate-500">
-    🛡️ Rakshak AI OSINT Command Platform • Developed for Surat Police Department • Hackathon Edition v1.0.0
+    ️ Rakshak AI OSINT Command Platform • Developed for Surat Police Department • Hackathon Edition v1.0.0
   </footer>
 
   <!-- ==================== FRONT-END LOGIC & DATA INTEGRATION ==================== -->
@@ -973,7 +1008,7 @@
                 </div>
 
                 <button onclick="openEvidenceReport(${alert.id})" class="text-cyan-400 hover:underline hover:text-cyan-300 flex items-center gap-0.5">
-                  📁 Case File
+                   Case File
                 </button>
               </div>
             </div>
@@ -1110,7 +1145,7 @@
                   <span>Sentiment Score: <strong class="${item.sentimentLabel === 'negative' ? 'text-rose-400' : 'text-slate-400'}">${parseFloat(item.sentimentScore).toFixed(2)} (${item.sentimentLabel})</strong></span>
                   <span>Threat score: <strong>${(item.threatScore * 100).toFixed(0)}% (${item.threatCategory})</strong></span>
                 </div>
-                <a href="${item.url}" target="_blank" class="text-cyan-400 hover:underline">View original source post ➡️</a>
+                <a href="${item.url}" target="_blank" class="text-cyan-400 hover:underline">View original source post ️</a>
               </div>
             </div>
           `;

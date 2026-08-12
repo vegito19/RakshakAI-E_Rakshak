@@ -483,13 +483,13 @@ export default function PoliceCommandDashboard() {
       <html>
         <head>
           <title>Evidentiary Case Report</title>
-          <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+          <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=JetBrains+Mono:wght@400;500;600;700&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400&display=swap" rel="stylesheet">
           <script src="https://cdn.tailwindcss.com"><\/script>
           <style>
             body {
               background: white !important;
               color: black !important;
-              font-family: 'Outfit', sans-serif;
+              font-family: 'Source Serif 4', Georgia, serif;
               padding: 30px;
             }
             * {

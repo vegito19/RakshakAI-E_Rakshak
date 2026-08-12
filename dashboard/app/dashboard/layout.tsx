@@ -7,7 +7,7 @@ export default function DashboardLayout({
   children: React.ReactNode;
 }) {
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 font-sans antialiased">
+    <div className="min-h-screen bg-[#111010] text-[#E8E4DC] font-sans antialiased selection:bg-[#C9A961] selection:text-[#111010]">
       {children}
     </div>
   );

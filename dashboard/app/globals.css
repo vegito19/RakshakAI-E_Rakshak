@@ -1,29 +1,147 @@
+@import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=JetBrains+Mono:wght@400;500;600;700&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-/* Custom map styling to match the dark operational theme */
+:root {
+  --bg-base: #111010;
+  --panel-bg: #171513;
+  --secondary-panel-bg: #1D1A17;
+  --border-color: #332E28;
+  --primary-accent: #C9A961;
+  --dim-accent: #8C7647;
+  --primary-text: #E8E4DC;
+  --secondary-text: #9A948A;
+  --critical-accent: #A6423A;
+  --safe-accent: #4C7A63;
+  --warning-accent: #B9873F;
+  --accent-wash: rgba(201, 169, 97, 0.1);
+  --card-shadow: none;
+}
+
+[data-theme="light"], body.light-theme {
+  --bg-base: #F5F3EE;
+  --panel-bg: #FFFFFF;
+  --secondary-panel-bg: #FAF8F2;
+  --border-color: #DDD6C7;
+  --primary-accent: #8C6A2C;
+  --dim-accent: #8C6A2C;
+  --primary-text: #1E1B16;
+  --secondary-text: #6E675A;
+  --critical-accent: #8C332B;
+  --safe-accent: #33604A;
+  --warning-accent: #96661F;
+  --accent-wash: #F1E9D6;
+  --card-shadow: 0 1px 3px rgba(30, 27, 22, 0.04);
+}
+
+body {
+  font-family: 'Source Serif 4', Georgia, serif;
+  background-color: var(--bg-base) !important;
+  color: var(--primary-text) !important;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: 'Fraunces', Georgia, serif !important;
+  font-weight: 600;
+  color: #E8E4DC;
+}
+
+p, span.body-text {
+  font-family: 'Source Serif 4', Georgia, serif;
+}
+
+.font-mono,
+label,
+.badge,
+.tag,
+nav button,
+.stat-label,
+.timestamp,
+.coordinates,
+.case-id {
+  font-family: 'JetBrains Mono', monospace !important;
+}
+
+label, 
+.font-mono.uppercase, 
+.uppercase.tracking-wider,
+.uppercase.tracking-tight,
+nav button {
+  letter-spacing: 1.5px;
+}
+
+/* Hairline borders & glow removals */
+*, *::before, *::after {
+  border-color: var(--border-color);
+  box-shadow: none !important;
+  text-shadow: none !important;
+}
+
+/* Light Mode Buttons matching OSINT Matrix styling */
+[data-theme="light"] button,
+[data-theme="light"] a[class*="rounded"] {
+  background-color: #F1E9D6 !important;
+  color: #8C6A2C !important;
+  border: 1px solid #8C6A2C !important;
+  font-family: 'JetBrains Mono', monospace !important;
+  font-weight: 600 !important;
+  box-shadow: none !important;
+}
+
+[data-theme="light"] button:hover,
+[data-theme="light"] a[class*="rounded"]:hover {
+  background-color: #E5DCBF !important;
+  color: #6D5120 !important;
+  border-color: #8C6A2C !important;
+}
+
+[data-theme="light"] nav button {
+  background-color: #FAF8F2 !important;
+  color: #6E675A !important;
+  border: 1px solid #DDD6C7 !important;
+  font-family: 'JetBrains Mono', monospace !important;
+}
+
+[data-theme="light"] nav button:hover {
+  background-color: #F1E9D6 !important;
+  color: #8C6A2C !important;
+  border-color: #8C6A2C !important;
+}
+
+[data-theme="light"] nav button.active,
+[data-theme="light"] nav button[class*="text-[#C9A961]"],
+[data-theme="light"] nav button[class*="border-[#8C7647]"] {
+  background-color: #F1E9D6 !important;
+  border: 1px solid #8C6A2C !important;
+  color: #8C6A2C !important;
+  font-weight: 700 !important;
+}
+
+/* Custom map styling to match the theme */
 .leaflet-container {
-  background-color: #0b0f19 !important;
-  font-family: 'Outfit', sans-serif !important;
+  background-color: #111010 !important;
+  font-family: 'Source Serif 4', Georgia, serif !important;
 }
 
 .leaflet-popup-content-wrapper, .leaflet-popup-tip {
-  background: rgba(15, 23, 42, 0.9) !important;
-  backdrop-filter: blur(8px);
-  color: #f1f5f9 !important;
-  border: 1px solid rgba(255, 255, 255, 0.1) !important;
-  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.3) !important;
-  border-radius: 12px !important;
+  background: #171513 !important;
+  color: #E8E4DC !important;
+  border: 1px solid #332E28 !important;
+  box-shadow: none !important;
+  border-radius: 8px !important;
 }
 
 .leaflet-popup-content {
+  font-family: 'Source Serif 4', Georgia, serif !important;
+  color: #E8E4DC !important;
   margin: 12px 16px !important;
   line-height: 1.4 !important;
 }
 
 .leaflet-popup-close-button {
-  color: #94a3b8 !important;
+  color: #9A948A !important;
   padding: 6px !important;
 }
 
