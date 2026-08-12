@@ -4,13 +4,13 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Rakshak AI • Multi-Domain Law Enforcement Intelligence & Forensics Suite</title>
+  <title>SURAKSHAK AI • Multi-Domain Law Enforcement Intelligence & Forensics Suite</title>
 
   <!-- Fonts -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link
-    href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=JetBrains+Mono:wght@400;500;600;700&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400&display=swap"
+    href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=IBM+Plex+Mono:ital,wght@0,400;0,500;0,600;0,700;1,400&family=IBM+Plex+Sans:wght@400;500;600;700&family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=JetBrains+Mono:wght@400;500;600;700&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400&display=swap"
     rel="stylesheet">
 
   <!-- Tailwind CSS CDN -->
@@ -770,10 +770,11 @@
               d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
           </svg>
         </div>
-        <h2 class="text-2xl font-black tracking-tight text-white flex items-center justify-center gap-2">
-          RAKSHAK Social
+        <h2 class="text-[26px] text-white flex items-center justify-center gap-2 font-normal"
+          style="font-family: 'DM Serif Display', serif; letter-spacing: -0.3px;">
+          SURAKSHAK
           <span
-            class="text-[9px] bg-emerald-500/20 text-emerald-300 font-mono px-2 py-0.5 rounded border border-emerald-500/30 uppercase">OTP
+            class="text-[9px] bg-emerald-500/20 text-emerald-300 font-mono px-2 py-0.5 rounded border border-emerald-500/30 uppercase tracking-normal">OTP
             2FA Active</span>
         </h2>
         <p class="text-xs text-slate-400 font-mono">Surat Police Cyber Crime Cell • Officer Authentication Portal</p>
@@ -1023,7 +1024,7 @@
     <!-- Top Header Banner -->
     <header
       class="border-b border-[#332E28] px-6 py-3.5 glass sticky top-0 z-50 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-      <div class="flex items-center space-x-3">
+      <div class="flex items-center space-x-3 md:flex-1">
         <div class="bg-transparent p-2 rounded-xl border border-[#8C7647] text-[#C9A961]">
           <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"
             stroke-width="2">
@@ -1032,39 +1033,44 @@
           </svg>
         </div>
         <div>
-          <h1 class="text-lg font-bold tracking-tight text-[#E8E4DC] flex items-center gap-2 font-heading">
-            RAKSHAK Social <span
-              class="text-[9px] border border-[#8C7647] text-[#C9A961] bg-transparent font-bold px-2 py-0.5 rounded font-mono uppercase tracking-wider">Production
-              Node</span>
+          <h1 class="text-[26px] text-[#E8E4DC] font-normal"
+            style="font-family: 'DM Serif Display', serif; letter-spacing: -0.3px; line-height: 1.1;">
+            SURAKSHAK
           </h1>
-          <p class="text-[11px] text-[#9A948A]">Surat Police Cyber Cell • Real-Time Intelligence, Dark Web & Digital
-            Forensics</p>
+          <p class="text-[13.5px] font-normal text-[#9A948A]"
+            style="font-family: 'IBM Plex Sans', sans-serif; letter-spacing: 0.2px;">Surat Police Cyber Cell.</p>
         </div>
       </div>
 
-      <!-- Navigation Tabs Strip -->
-      <nav
-        class="flex flex-wrap items-center gap-1.5 bg-[#171513] p-1 rounded-2xl border border-[#332E28] text-xs font-semibold">
-        <button onclick="switchView('osint')" id="nav-osint"
-          class="px-3.5 py-2 rounded-xl text-[#C9A961] border border-[#8C7647] bg-transparent transition flex items-center gap-1.5 font-bold font-mono tracking-wider">
-          OSINT Matrix
-        </button>
-        <button onclick="switchView('agent')" id="nav-agent"
-          class="px-3.5 py-2 rounded-xl text-[#9A948A] hover:text-[#E8E4DC] hover:bg-[#1D1A17] border border-transparent hover:border-[#332E28] transition flex items-center gap-1.5 font-mono tracking-wider">
-          Investigate AI
-        </button>
-        <button onclick="switchView('forensics')" id="nav-forensics"
-          class="px-3.5 py-2 rounded-xl text-[#9A948A] hover:text-[#E8E4DC] hover:bg-[#1D1A17] border border-transparent hover:border-[#332E28] transition flex items-center gap-1.5 font-mono tracking-wider">
-          Whatsapp Crawl
-        </button>
-        <button onclick="switchView('crawler')" id="nav-crawler"
-          class="px-3.5 py-2 rounded-xl text-[#9A948A] hover:text-[#E8E4DC] hover:bg-[#1D1A17] border border-transparent hover:border-[#332E28] transition flex items-center gap-1.5 font-mono tracking-wider">
-          Ingest Console
-        </button>
-      </nav>
+      <!-- Navigation Tabs Strip (Centered for Symmetry, Static Straight Line) -->
+      <div class="w-full md:w-auto md:flex-1 flex justify-center">
+        <nav
+          class="flex flex-row items-center justify-center gap-1.5 bg-[#171513] p-1 rounded-2xl border border-[#332E28] text-[13px] whitespace-nowrap">
+          <button onclick="switchView('osint')" id="nav-osint"
+            class="px-3.5 py-2 rounded-xl text-[#C9A961] border border-[#8C7647] bg-transparent transition flex items-center gap-1.5 font-semibold text-[13px]"
+            style="font-family: 'IBM Plex Mono', monospace; letter-spacing: 0.6px;">
+            Intel Radar
+          </button>
+          <button onclick="switchView('agent')" id="nav-agent"
+            class="px-3.5 py-2 rounded-xl text-[#9A948A] hover:text-[#E8E4DC] hover:bg-[#1D1A17] border border-transparent hover:border-[#332E28] transition flex items-center gap-1.5 font-medium text-[13px]"
+            style="font-family: 'IBM Plex Mono', monospace; letter-spacing: 0.5px;">
+            Intel Copilot
+          </button>
+          <button onclick="switchView('forensics')" id="nav-forensics"
+            class="px-3.5 py-2 rounded-xl text-[#9A948A] hover:text-[#E8E4DC] hover:bg-[#1D1A17] border border-transparent hover:border-[#332E28] transition flex items-center gap-1.5 font-medium text-[13px]"
+            style="font-family: 'IBM Plex Mono', monospace; letter-spacing: 0.5px;">
+            Forensic Trace
+          </button>
+          <button onclick="switchView('crawler')" id="nav-crawler"
+            class="px-3.5 py-2 rounded-xl text-[#9A948A] hover:text-[#E8E4DC] hover:bg-[#1D1A17] border border-transparent hover:border-[#332E28] transition flex items-center gap-1.5 font-medium text-[13px]"
+            style="font-family: 'IBM Plex Mono', monospace; letter-spacing: 0.5px;">
+            Evidence Hub
+          </button>
+        </nav>
+      </div>
 
       <!-- User Actions -->
-      <div class="flex items-center space-x-3">
+      <div class="flex items-center justify-end space-x-3 md:flex-1">
         <!-- Theme Toggle Control -->
         <button id="themeToggleBtn" onclick="toggleTheme()" title="Toggle Light/Dark Theme"
           class="px-2.5 py-1.5 text-xs bg-[#171513] border border-[#332E28] hover:border-[#8C7647] text-[#9A948A] hover:text-[#E8E4DC] font-bold rounded-lg transition font-mono flex items-center justify-center gap-1.5 cursor-pointer">
@@ -1112,7 +1118,7 @@
             <div class="glass p-5 rounded-3xl space-y-4">
               <h2
                 class="text-xs font-bold text-slate-200 uppercase tracking-wider font-mono flex items-center justify-between">
-                <span>Surat City Geospatial Threat Matrix</span>
+                <span>Surat GeoIntel</span>
                 <span class="text-[10px] text-slate-400 font-normal">WGS-84 Point Projection</span>
               </h2>
               <div id="map"></div>
@@ -1310,7 +1316,7 @@
                 required>
               <button type="submit" id="agentSubmitBtn"
                 class="px-5 py-3 bg-gradient-to-r from-cyan-500 to-indigo-600 hover:from-cyan-400 hover:to-indigo-500 text-black font-extrabold text-xs rounded-xl transition shadow-lg shadow-cyan-500/20 uppercase tracking-wider font-mono whitespace-nowrap">
-                ASK GEMINI &rarr;
+                ASK SAI &rarr;
               </button>
             </form>
           </div>
@@ -1703,7 +1709,7 @@
                     items</span>
                 </h4>
                 <button onclick="switchView('osint')" class="text-[10px] text-cyan-400 hover:underline font-mono">View
-                  on OSINT Matrix &rarr;</button>
+                  on Intel Radar &rarr;</button>
               </div>
               <div id="liveIngestResults" class="space-y-3 max-h-72 overflow-y-auto pr-1 text-xs">
                 <div class="p-4 bg-slate-950/60 border border-slate-900 rounded-xl text-slate-500 text-center">Execute
@@ -2464,10 +2470,18 @@
                   const navEl = document.getElementById('nav-' + v);
                   if (v === viewName) {
                     if (viewEl) viewEl.classList.remove('hidden');
-                    if (navEl) navEl.className = 'px-3.5 py-2 rounded-xl text-[#C9A961] border border-[#8C7647] bg-transparent transition flex items-center gap-1.5 font-bold font-mono tracking-wider';
+                    if (navEl) {
+                      navEl.className = 'px-3.5 py-2 rounded-xl text-[#C9A961] border border-[#8C7647] bg-transparent transition flex items-center gap-1.5 font-semibold text-[13px]';
+                      navEl.style.fontFamily = "'IBM Plex Mono', monospace";
+                      navEl.style.letterSpacing = "0.6px";
+                    }
                   } else {
                     if (viewEl) viewEl.classList.add('hidden');
-                    if (navEl) navEl.className = 'px-3.5 py-2 rounded-xl text-[#9A948A] hover:text-[#E8E4DC] hover:bg-[#1D1A17] border border-transparent hover:border-[#332E28] transition flex items-center gap-1.5 font-mono tracking-wider';
+                    if (navEl) {
+                      navEl.className = 'px-3.5 py-2 rounded-xl text-[#9A948A] hover:text-[#E8E4DC] hover:bg-[#1D1A17] border border-transparent hover:border-[#332E28] transition flex items-center gap-1.5 font-medium text-[13px]';
+                      navEl.style.fontFamily = "'IBM Plex Mono', monospace";
+                      navEl.style.letterSpacing = "0.5px";
+                    }
                   }
                 });
 
@@ -2595,6 +2609,11 @@
                         weight: 1.5,
                         fillOpacity: isLight ? 1.0 : 0.15
                       }).addTo(mapInstance);
+
+                      marker.bindTooltip(`Lat: ${coords[0].toFixed(5)}, Lng: ${coords[1].toFixed(5)}`, {
+                        permanent: false,
+                        direction: 'top'
+                      });
 
                       marker.bindPopup(
                         '<div style="font-family: \'Source Serif 4\', serif; font-size: 11px; color: ' + (isLight ? '#1E1B16' : '#E8E4DC') + ';">' +
@@ -3748,6 +3767,11 @@
                       fillOpacity: isLight ? 1.0 : 0.15
                     }).addTo(forensicsMap);
 
+                    marker.bindTooltip(`Lat: ${p.lat.toFixed(5)}, Lng: ${p.lng.toFixed(5)}`, {
+                      permanent: false,
+                      direction: 'top'
+                    });
+
                     marker.bindPopup(`
             <div style="font-family: 'Source Serif 4', serif; font-size: 11px; color: ${isLight ? '#1E1B16' : '#E8E4DC'};">
               <strong style="color: ${color}; font-family: 'JetBrains Mono', monospace; letter-spacing: 1px;">EXIF GPS EXTRACTED</strong><br/>
@@ -3819,17 +3843,66 @@
                   return;
                 }
                 const firMatch = text.match(/FIR NUMBER:\s*([a-zA-Z0-9_-]+)/i);
-                const suspectMatch = text.match(/Platform Account Handle:\s*@?([a-zA-Z0-9_\.-]+)/i);
+                const suspectMatch = text.match(/Target Persona \/ Accused:\s*@?([a-zA-Z0-9_\.-]+)/i) || text.match(/Platform Account Handle:\s*@?([a-zA-Z0-9_\.-]+)/i);
                 const firName = firMatch ? firMatch[1] : 'E-FIR';
                 const suspectName = suspectMatch ? suspectMatch[1] : 'ACCUSED';
                 const filename = `${firName}_${suspectName}_SURAT_POLICE.pdf`;
 
+                // Clean all raw markdown symbols (** * ### ` "" '') for professional police report rendering
+                const cleanText = text
+                  .replace(/\*\*/g, '')
+                  .replace(/\*/g, '')
+                  .replace(/#/g, '')
+                  .replace(/`/g, '')
+                  .replace(/[""]/g, '"')
+                  .replace(/['']/g, "'");
+
                 const { jsPDF } = window.jspdf;
-                const doc = new jsPDF();
+                const doc = new jsPDF({
+                  orientation: 'portrait',
+                  unit: 'mm',
+                  format: 'a4'
+                });
+
                 doc.setFont('courier', 'normal');
-                doc.setFontSize(8);
-                const splitText = doc.splitTextToSize(text, 180);
-                doc.text(splitText, 15, 15);
+                doc.setFontSize(8.5);
+
+                const pageWidth = 210;
+                const pageHeight = 297;
+                const marginTop = 15;
+                const marginBottom = 15;
+                const marginLeft = 15;
+                const printableWidth = pageWidth - (marginLeft * 2); // 180mm
+                const lineHeight = 4.8;
+                const maxPageHeight = pageHeight - marginBottom - 5;
+
+                const lines = doc.splitTextToSize(cleanText, printableWidth);
+                let y = marginTop;
+                let pageNum = 1;
+
+                for (let i = 0; i < lines.length; i++) {
+                  if (y + lineHeight > maxPageHeight) {
+                    // Add footer to current page before adding a new page
+                    doc.setFontSize(7);
+                    doc.setTextColor(120, 120, 120);
+                    doc.text(`Page ${pageNum} • SURAKSHAK Cyber Crime Police Suite • Section 63 BSA 2023`, marginLeft, pageHeight - 8);
+                    
+                    doc.addPage();
+                    pageNum++;
+                    doc.setFont('courier', 'normal');
+                    doc.setFontSize(8.5);
+                    doc.setTextColor(0, 0, 0);
+                    y = marginTop;
+                  }
+                  doc.text(lines[i], marginLeft, y);
+                  y += lineHeight;
+                }
+
+                // Footer for final page
+                doc.setFontSize(7);
+                doc.setTextColor(120, 120, 120);
+                doc.text(`Page ${pageNum} • SURAKSHAK Cyber Crime Police Suite • Section 63 BSA 2023`, marginLeft, pageHeight - 8);
+
                 doc.save(filename);
               }
 

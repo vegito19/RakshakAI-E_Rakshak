@@ -223,11 +223,30 @@ When analyzing user queries and attached context (crawled social media posts or 
           'Add Suspect Persona to Surat Police High-Priority Watchlist'
         ];
 
-        // Synthesize live dossier draft
+        // Synthesize live dossier draft with full Gemini analysis and clean formatting
         const primaryPost = resolvedContexts.find(c => c.type.includes('SOCIAL'))?.rawObj || allPosts[0];
         const primaryCase = resolvedContexts.find(c => c.type.includes('CASE'))?.rawObj;
         const firNumber = primaryCase?.firNumber || `FIR-SRT-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`;
         const dateStr = new Date().toLocaleDateString('en-IN', { year: 'numeric', month: 'long', day: 'numeric' });
+
+        const cleanAnalysisText = geminiResult.text
+          .replace(/\*\*/g, '')
+          .replace(/\*/g, '')
+          .replace(/#/g, '')
+          .replace(/`/g, '')
+          .replace(/[""]/g, '"')
+          .replace(/['']/g, "'")
+          .split('\n')
+          .map(l => '   ' + l)
+          .join('\n');
+
+        const rawContentSample = primaryPost ? (primaryPost.translatedContent || primaryPost.content) : (primaryCase?.incidentSummary || 'Subversive incitement and public safety disturbance detected via OSINT monitoring.');
+        const cleanContentSample = rawContentSample
+          .replace(/\*\*/g, '')
+          .replace(/\*/g, '')
+          .replace(/#/g, '')
+          .replace(/`/g, '')
+          .replace(/[""]/g, '"');
 
         const dossierDraft = `
 ================================================================================
@@ -245,13 +264,26 @@ When analyzing user queries and attached context (crawled social media posts or 
    • Target Persona / Accused: ${primaryPost ? '@' + primaryPost.author + ' (' + (primaryPost.source || 'Social Media').toUpperCase() + ')' : 'Unidentified Digital Persona'}
 
 5. EVIDENTIARY SUBSTANCE EXTRACT:
-   "${primaryPost ? (primaryPost.translatedContent || primaryPost.content) : (primaryCase?.incidentSummary || 'Subversive incitement and public safety disturbance detected via OSINT monitoring.')}"
+   "${cleanContentSample}"
 
 6. AI COPILOT SYNTHESIS & LEGAL OPINION:
-${geminiResult.text.split('\n').slice(0, 10).map(l => '   ' + l).join('\n')}
+${cleanAnalysisText}
 
 ================================================================================
-Certified by Rakshak CrimeOS Agentic Engine (Model: ${geminiResult.model})
+                         OFFICIAL SIGNATURES & SEALS
+================================================================================
+
+INVESTIGATING OFFICER (IO)                 SUPERVISORY OFFICER / SHO
+
+Signature: ______________________         Signature: ______________________
+Name:      ${officerName}                 Name:      ______________________
+Rank/Badge: Inspector (#SRT-8092)         Designation: ACP / DCP Cyber Crime
+Unit:      Cyber & OSINT Crime Unit       Station:   Cyber Police Station, Surat
+Date:      ${dateStr}                     Date:      ______________________
+
+[ OFFICIAL POLICE SEAL / STAMP ]           [ OFFICE OF THE SUPERINTENDENT ]
+================================================================================
+Certified by SURAKSHAK CrimeOS Agentic Engine (Model: ${geminiResult.model})
 Evidence Standard ISO/IEC 27037 & Section 63 BSA 2023
 ================================================================================
 `.trim();
@@ -295,6 +327,7 @@ Evidence Standard ISO/IEC 27037 & Section 63 BSA 2023
 
     let suspect = primaryEvidence ? `@${primaryEvidence.author} (${(primaryEvidence.source || 'OSINT').toUpperCase()})` : 'Unidentified Digital Persona';
     let contentSample = primaryEvidence ? (primaryEvidence.translatedContent || primaryEvidence.content) : 'Subversive incitement and public safety disturbance detected via OSINT monitoring.';
+    contentSample = contentSample.replace(/\*\*(.*?)\*\*/g, '$1').replace(/\*(.*?)\*/g, '$1').replace(/`([^`]+)`/g, '$1');
     let threatCategory = primaryEvidence?.threatCategory?.toUpperCase() || 'PUBLIC SAFETY THREAT';
     let threatPct = primaryEvidence ? `${Math.round((primaryEvidence.threatScore || 0.75) * 100)}%` : '85%';
 
@@ -330,7 +363,20 @@ ${sectionsText}
    [x] Extract Telecom CDR tower dump data and execute frequency matrix analysis.
 
 ================================================================================
-Certified by Rakshak CrimeOS Agentic Engine • Evidence Standard ISO/IEC 27037 & BSA 2023
+                         OFFICIAL SIGNATURES & SEALS
+================================================================================
+
+INVESTIGATING OFFICER (IO)                 SUPERVISORY OFFICER / SHO
+
+Signature: ______________________         Signature: ______________________
+Name:      ${officerName}                 Name:      ______________________
+Rank/Badge: Inspector (#SRT-8092)         Designation: ACP / DCP Cyber Crime
+Unit:      Cyber & OSINT Crime Unit       Station:   Cyber Police Station, Surat
+Date:      ${dateStr}                     Date:      ______________________
+
+[ OFFICIAL POLICE SEAL / STAMP ]           [ OFFICE OF THE SUPERINTENDENT ]
+================================================================================
+Certified by SURAKSHAK CrimeOS Agentic Engine • Evidence Standard ISO/IEC 27037 & BSA 2023
 ================================================================================
 `.trim();
 
