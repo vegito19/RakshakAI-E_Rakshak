@@ -7,7 +7,12 @@ dotenv.config();
 const connectionString = process.env.DATABASE_URL;
 
 export const pool = connectionString
-  ? new Pool({ connectionString })
+  ? new Pool({
+      connectionString,
+      ssl: connectionString.includes('127.0.0.1') || connectionString.includes('localhost')
+        ? false
+        : { rejectUnauthorized: false }
+    })
   : new Pool({
       host: process.env.DB_HOST || '127.0.0.1',
       port: parseInt(process.env.DB_PORT || '5432', 10),
