@@ -2327,10 +2327,20 @@
                 try {
                   const res = await fetch('/api/auth/verify-otp-login', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: { 
+                      'Content-Type': 'application/json',
+                      'Bypass-Tunnel-Reminder': 'true'
+                    },
                     body: JSON.stringify({ email, otp, password: password || undefined })
                   });
-                  const data = await res.json();
+                  let data;
+                  const contentType = res.headers.get('content-type') || '';
+                  if (contentType.includes('application/json')) {
+                    data = await res.json();
+                  } else {
+                    const rawText = await res.text();
+                    throw new Error(`Backend returned non-JSON (${res.status}): ${rawText.slice(0, 100)}`);
+                  }
                   submitBtn.disabled = false;
                   submitBtn.textContent = 'VERIFY OTP & AUTHENTICATE BADGE';
 
@@ -2379,10 +2389,20 @@
                 try {
                   const res = await fetch('/api/auth/register-with-otp', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: { 
+                      'Content-Type': 'application/json',
+                      'Bypass-Tunnel-Reminder': 'true'
+                    },
                     body: JSON.stringify({ username, email, otp, role, password })
                   });
-                  const data = await res.json();
+                  let data;
+                  const contentType = res.headers.get('content-type') || '';
+                  if (contentType.includes('application/json')) {
+                    data = await res.json();
+                  } else {
+                    const rawText = await res.text();
+                    throw new Error(`Backend returned non-JSON (${res.status}): ${rawText.slice(0, 100)}`);
+                  }
                   submitBtn.disabled = false;
                   submitBtn.textContent = 'VERIFY OTP & ENROLL OFFICER PROFILE';
 
@@ -2427,10 +2447,20 @@
                 try {
                   const res = await fetch('/api/auth/reset-password', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: { 
+                      'Content-Type': 'application/json',
+                      'Bypass-Tunnel-Reminder': 'true'
+                    },
                     body: JSON.stringify({ email, otp, newPassword })
                   });
-                  const data = await res.json();
+                  let data;
+                  const contentType = res.headers.get('content-type') || '';
+                  if (contentType.includes('application/json')) {
+                    data = await res.json();
+                  } else {
+                    const rawText = await res.text();
+                    throw new Error(`Backend returned non-JSON (${res.status}): ${rawText.slice(0, 100)}`);
+                  }
                   submitBtn.disabled = false;
                   submitBtn.textContent = 'VERIFY OTP & UPDATE BADGE PASSWORD';
 
