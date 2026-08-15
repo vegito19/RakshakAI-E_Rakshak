@@ -8,8 +8,8 @@ const nextConfig = {
     ignoreDuringBuilds: true,
   },
   async rewrites() {
-    // Permanent Localtunnel URL: https://rakshak-police.loca.lt
-    const rawBackendUrl = process.env.NEXT_PUBLIC_API_URL || 'https://rakshak-police.loca.lt';
+    // Cloudflare Quick Tunnel URL: https://investors-outreach-independent-biz.trycloudflare.com
+    const rawBackendUrl = process.env.NEXT_PUBLIC_API_URL || 'https://investors-outreach-independent-biz.trycloudflare.com';
     const backendUrl = rawBackendUrl.replace(/\/$/, '');
 
     return [
