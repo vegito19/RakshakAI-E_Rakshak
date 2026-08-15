@@ -8,8 +8,8 @@ const nextConfig = {
     ignoreDuringBuilds: true,
   },
   async rewrites() {
-    // Cloudflare Quick Tunnel URL: https://formed-exposed-since-mode.trycloudflare.com
-    const rawBackendUrl = process.env.NEXT_PUBLIC_API_URL || 'https://formed-exposed-since-mode.trycloudflare.com';
+    // Permanent Reserved Subdomain Backend: https://rakshak-police.loca.lt
+    const rawBackendUrl = process.env.NEXT_PUBLIC_API_URL || 'https://rakshak-police.loca.lt';
     const backendUrl = rawBackendUrl.replace(/\/$/, '');
 
     return [
