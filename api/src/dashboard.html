@@ -2176,7 +2176,10 @@
                 try {
                   const res = await fetch('/api/auth/send-otp', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: { 
+                      'Content-Type': 'application/json',
+                      'Bypass-Tunnel-Reminder': 'true'
+                    },
                     body: JSON.stringify({ email, purpose })
                   });
                   const data = await res.json();
