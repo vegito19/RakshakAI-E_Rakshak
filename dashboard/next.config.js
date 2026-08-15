@@ -8,8 +8,8 @@ const nextConfig = {
     ignoreDuringBuilds: true,
   },
   async rewrites() {
-    // Localtunnel fixed public URL: https://rakshak-police.loca.lt
-    const rawBackendUrl = process.env.NEXT_PUBLIC_API_URL || 'https://rakshak-police.loca.lt';
+    // Active Localtunnel URL: https://average-robin-2.loca.lt
+    const rawBackendUrl = process.env.NEXT_PUBLIC_API_URL || 'https://average-robin-2.loca.lt';
     const backendUrl = rawBackendUrl.replace(/\/$/, '');
 
     return [
