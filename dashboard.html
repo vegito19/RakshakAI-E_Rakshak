@@ -1607,7 +1607,6 @@
                     <option value="hashtag">Hashtag (#)</option>
                     <option value="profile">User ID / Handle (@)</option>
                     <option value="channel">Channel / Subreddit</option>
-                    <option value="location">Location ID / Geo</option>
                   </select>
                 </div>
                 <div>
@@ -3930,8 +3929,6 @@
                   targetInput.placeholder = p === 'reddit' ? 'e.g. u/surat_citizen' : 'e.g. @GujaratPolice, @SuratCityPolice';
                 } else if (m === 'channel') {
                   targetInput.placeholder = p === 'reddit' ? 'e.g. surat, gujarat' : (p === 'telegram' ? 'e.g. suratnews, crimealert' : 'e.g. SuratPoliceChannel');
-                } else if (m === 'location') {
-                  targetInput.placeholder = 'e.g. Vesu, Dumas, Varachha, Adajan';
                 } else {
                   targetInput.placeholder = 'e.g. surat riot, extortion, firearms, flood';
                 }

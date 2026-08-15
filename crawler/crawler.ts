@@ -233,14 +233,14 @@ class CrawlerCoordinator {
         }
       }
 
-      // 3c. Location mode
+      // 3c. Location keyword search mode
       for (const loc of TARGET_INSTAGRAM_LOCATIONS) {
         try {
-          const items = await instagramScraper.scrape('location', loc, POST_LIMIT);
-          logger.info(`Retrieved ${items.length} items for location ID ${loc}`, 'CrawlerCoordinator');
+          const items = await instagramScraper.scrape('search', loc, POST_LIMIT);
+          logger.info(`Retrieved ${items.length} items for location keyword "${loc}"`, 'CrawlerCoordinator');
           await this.processCrawledItems(items);
         } catch (err) {
-          logger.error(`Failed to process Instagram location ID: ${loc}`, err as Error, 'CrawlerCoordinator');
+          logger.error(`Failed to process Instagram location keyword: ${loc}`, err as Error, 'CrawlerCoordinator');
         }
       }
 

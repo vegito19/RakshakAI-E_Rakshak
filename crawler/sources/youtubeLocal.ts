@@ -139,13 +139,13 @@ export class YouTubeScraper {
       await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
 
       // Wait for video items to load
-      await page.waitForSelector('a#video-title-link, a#video-title', { timeout: 15000 }).catch(() => {
+      await page.waitForSelector('ytd-rich-item-renderer, ytd-video-renderer, a#video-title-link, a#video-title', { timeout: 15000 }).catch(() => {
         logger.debug('Timeout waiting for video elements to render.', 'YouTubeScraper');
       });
 
-      // Find all generic card renderers (ytd-video-renderer or ytd-grid-video-renderer)
-      const renderers = await page.locator('ytd-video-renderer, ytd-grid-video-renderer').all();
-      logger.info(`Found ${renderers.length} video elements. Commencing parsing...`, 'YouTubeScraper');
+      // Find all generic card renderers (ytd-rich-item-renderer, ytd-video-renderer or ytd-grid-video-renderer)
+      const renderers = await page.locator('ytd-rich-item-renderer, ytd-video-renderer, ytd-grid-video-renderer').all();
+      logger.info(`Found ${renderers.length} video elements on YouTube page. Commencing parsing...`, 'YouTubeScraper');
 
       let count = 0;
       for (const card of renderers) {
@@ -153,28 +153,47 @@ export class YouTubeScraper {
 
         try {
           // Extract title and href link
-          const titleEl = card.locator('a#video-title-link, a#video-title');
-          if (await titleEl.count() === 0) continue;
+          let titleText = '';
+          let href: string | null = null;
 
-          const titleText = (await titleEl.first().innerText()) || '';
-          const href = await titleEl.first().getAttribute('href');
+          const titleEl = card.locator('a#video-title-link, a#video-title, #video-title');
+          if (await titleEl.count() > 0) {
+            titleText = (await titleEl.first().innerText()).trim() || (await titleEl.first().getAttribute('title')) || '';
+            href = await titleEl.first().getAttribute('href');
+          }
 
-          if (!titleText || !href || !href.includes('/watch?v=')) continue;
+          if (!href || !titleText || titleText.length < 3 || /^\d+:\d+$/.test(titleText)) {
+            const watchLinks = await card.locator('a[href*="/watch?v="]').all();
+            for (const wLink of watchLinks) {
+              const rawH = await wLink.getAttribute('href');
+              const txt = (await wLink.innerText()).trim();
+              if (rawH && txt && txt.length > 5 && !/^\d+:\d+$/.test(txt)) {
+                href = rawH;
+                titleText = txt;
+                break;
+              }
+            }
+          }
+
+          if (!href || !href.includes('/watch?v=')) continue;
+          if (!titleText || titleText.length < 3) {
+            titleText = `YouTube Video from ${target}`;
+          }
+
           if (!bypassKeywordFilter && !isPotentiallyRelevant(titleText)) continue;
 
           // Extract Video ID
           const urlParams = new URLSearchParams(href.split('?')[1] || '');
-          const videoId = urlParams.get('v') || 'video';
-          const videoUrl = `https://www.youtube.com${href}`;
+          const videoId = urlParams.get('v') || href.match(/v=([^&]+)/)?.[1] || 'video';
+          const videoUrl = `https://www.youtube.com/watch?v=${videoId}`;
 
           // Extract Author/Channel Name
-          let author = 'YouTube Channel';
-          if (mode === 'channel') {
-            author = target.replace('@', '');
-          } else {
-            const authorEl = card.locator('#channel-info a, #byline-container a, ytd-channel-name a');
+          let author = target.replace('@', '');
+          if (mode !== 'channel') {
+            const authorEl = card.locator('#channel-info a, #byline-container a, ytd-channel-name a, #text.ytd-channel-name a');
             if (await authorEl.count() > 0) {
-              author = (await authorEl.first().innerText()) || 'YouTube Channel';
+              const parsedAuthor = (await authorEl.first().innerText()).trim();
+              if (parsedAuthor) author = parsedAuthor;
             }
           }
 

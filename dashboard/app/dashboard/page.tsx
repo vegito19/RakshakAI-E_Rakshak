@@ -837,7 +837,6 @@ export default function PoliceCommandDashboard() {
                           <option value="search">Keyword Query</option>
                           <option value="profile">Profile Handle</option>
                           <option value="hashtag">Hashtag (#)</option>
-                          <option value="location">Location ID</option>
                         </select>
                       </div>
                       <div>

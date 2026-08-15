@@ -199,30 +199,9 @@ function analyzeWithRules(title: string, content: string): AnalyzedOutput {
     }
   }
 
-  // 2. Mock Translation
+  // 2. Content Preservation & Translation
   let translatedTitle = title ? title : null;
-  let translatedContent = content;
-
-  // Let's perform a simple translation mapping for well-known mock posts to keep it extremely polished
-  if (originalLanguage === 'hindi' || originalLanguage === 'hinglish') {
-    if (fullText.includes('protest') || fullText.includes('gathering')) {
-      translatedContent = "A public gathering and protest by diamond workers is going on at Vesu VIP Road. Local transport is completely blocked. Police force deployed. Situation is tense but under control. Avoid VIP road!";
-    } else if (fullText.includes('accident') || fullText.includes('takkar')) {
-      translatedContent = "There has been a collision between a bike and a car on Adajan Pal Road. Heated arguments are ongoing between local residents. A police team has been dispatched.";
-    } else if (fullText.includes('short circuit') || fullText.includes('aag') || fullText.includes('fire')) {
-      translatedContent = "A fire incident has been reported in a factory unit in Katargam GIDC industrial area due to a short circuit. Chemical storage block is affected. Heavy smoke. 5 fire engines are on spot. Police barricaded 2km radius.";
-    } else if (fullText.includes('scam') || fullText.includes('electricity') || fullText.includes('fake')) {
-      translatedContent = "Surat residents are receiving fake SMS posing as SMC/Electricity bill dues. Do not click on the link or pay on custom numbers. It is a phishing scam. Multiple complaints registered.";
-    }
-  } else if (originalLanguage === 'gujarati' || originalLanguage === 'gujlish') {
-    if (fullText.includes('પગાર') || fullText.includes('દેખાવો') || fullText.includes('વરાછા') || fullText.includes('union')) {
-      translatedContent = "Protests were carried out by diamond polishers near the labor office in Varachha Diamond Market regarding salary hikes. Labor union leaders are present. Police team has reached the spot.";
-    } else if (fullText.includes('dumas') || fullText.includes('high tide') || fullText.includes('ભરતી')) {
-      translatedContent = "High tide is predicted at Dumas Beach, please do not go near the water. Surat Police has increased guards and posted warnings. Weekend is crowded and traffic will increase.";
-    } else if (fullText.includes('waterlogging') || fullText.includes('પાણી') || fullText.includes('adajan')) {
-      translatedContent = "Adajan Pal Road and bridge area are heavily flooded due to continuous heavy rain in Surat. Traffic is crawling. Two wheelers are stuck. SMC team is clearing drains.";
-    }
-  }
+  let translatedContent = content; // Always preserve real crawled content
 
   // 3. Threat Assessment Heuristics
   let threatScore = 0.05;

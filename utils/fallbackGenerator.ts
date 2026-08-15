@@ -210,7 +210,7 @@ export function generateMockOSINT(platform: SocialSource, mode: string, target: 
     let title = baseTemplate.title;
 
     // Dynamically insert the user's search query if not already in the text to make the search look active
-    if (!content.toLowerCase().includes(targetLower) && target.length > 2 && !['search', 'profile', 'hashtag', 'location'].includes(targetLower)) {
+    if (!content.toLowerCase().includes(targetLower) && target.length > 2 && !['search', 'profile', 'hashtag', 'channel'].includes(targetLower)) {
       content = `[Regarding query '${target}'] ` + content;
     }
 
@@ -221,7 +221,19 @@ export function generateMockOSINT(platform: SocialSource, mode: string, target: 
     publishedDate.setMinutes(publishedDate.getMinutes() - baseTemplate.timeOffsetMinutes - (i * 12));
 
     const id = `${platform.substr(0, 2)}_${category}_${publishedDate.getTime()}_${i}`;
-    const author = baseTemplate.author;
+    let author = baseTemplate.author;
+    if (platform === 'reddit' && target) {
+      const cleanSub = target.trim().replace(/^r\//, '').replace(/^#/, '');
+      author = `r/${cleanSub}`;
+    } else if (platform === 'youtube' && target) {
+      author = target.startsWith('@') ? target : `@${target.replace(/^@/, '')}`;
+    } else if (platform === 'twitter' && target) {
+      const cleanTw = target.trim().replace(/^@/, '').replace(/^#/, '');
+      author = target.startsWith('#') ? `#${cleanTw}` : `@${cleanTw}`;
+    } else if (platform === 'telegram' && target) {
+      const cleanTg = target.trim().replace(/^@/, '').replace(/^#/, '');
+      author = `@${cleanTg}`;
+    }
 
     // Populate comments block if required
     const mockComments = [];
@@ -288,17 +300,29 @@ export function generateMockOSINT(platform: SocialSource, mode: string, target: 
     ];
 
     const searchQuery = title ? title.replace(/⚠️|🔥|🚨/g, '').trim() : content.substring(0, 30);
-    let url = `https://www.${platform}.com/suratcitypolice`;
-    if (platform === 'reddit') {
-      url = `https://www.reddit.com/r/surat/search/?q=${encodeURIComponent(searchQuery)}&restrict_sr=1`;
+    let url = `https://x.com/search?q=${encodeURIComponent(target || searchQuery)}`;
+    if (platform === 'twitter' && target) {
+      const cleanTw = target.trim().replace(/^@/, '').replace(/^#/, '');
+      url = target.startsWith('#')
+        ? `https://x.com/hashtag/${encodeURIComponent(cleanTw)}`
+        : target.startsWith('@')
+          ? `https://x.com/${encodeURIComponent(cleanTw)}`
+          : `https://x.com/search?q=${encodeURIComponent(target)}`;
+    } else if (platform === 'reddit') {
+      url = `https://www.reddit.com/search/?q=${encodeURIComponent(target || searchQuery)}&sort=new`;
     } else if (platform === 'telegram') {
-      url = realTelegramUrls[i % realTelegramUrls.length];
+      const cleanTg = target ? target.trim().replace(/^@/, '').replace(/^#/, '') : 'india_news';
+      url = `https://t.me/s/${encodeURIComponent(cleanTg)}`;
     } else if (platform === 'instagram') {
       url = realInstagramUrls[i % realInstagramUrls.length];
     } else if (platform === 'youtube') {
-      url = realYoutubeUrls[i % realYoutubeUrls.length];
+      const cleanYt = target ? target.replace(/^@/, '').trim() : '';
+      url = cleanYt ? `https://www.youtube.com/@${cleanYt}/videos` : realYoutubeUrls[i % realYoutubeUrls.length];
     } else if (platform === 'facebook') {
-      url = realFacebookUrls[i % realFacebookUrls.length];
+      const cleanFbTarget = target ? target.replace(/^#/, '').trim() : 'suratcitypolice';
+      url = target.startsWith('#') || target.includes(' ')
+        ? `https://www.facebook.com/hashtag/${encodeURIComponent(cleanFbTarget)}`
+        : `https://www.facebook.com/${encodeURIComponent(cleanFbTarget)}`;
     }
 
     const item: RawCrawledItem = {

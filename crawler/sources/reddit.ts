@@ -89,11 +89,26 @@ export class RedditScraper {
       }
       this.lastNavigationTime = Date.now();
 
-      const url = `https://www.reddit.com/r/${subreddit}/new/`;
-      logger.debug(`Navigating to target Reddit URL: ${url}`, 'RedditScraper');
+      // Determine whether target is a subreddit or a global search keyword query
+      const cleanTarget = subreddit.trim();
+      const isSubredditFormat = /^[a-zA-Z0-9_]+$/.test(cleanTarget) && ['surat', 'gujarat', 'india', 'news', 'delhi'].includes(cleanTarget.toLowerCase());
+      
+      let url = isSubredditFormat 
+        ? `https://www.reddit.com/r/${cleanTarget}/new/`
+        : `https://www.reddit.com/search/?q=${encodeURIComponent(cleanTarget)}&sort=new`;
+
+      logger.info(`Navigating to target Reddit URL: ${url}`, 'RedditScraper');
       
       // Navigate and wait for DOM load
-      const response = await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+      let response = await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+      
+      // Fallback to search query if subreddit URL returned 404 or empty
+      if (response && response.status() === 404 && isSubredditFormat) {
+        url = `https://www.reddit.com/search/?q=${encodeURIComponent(cleanTarget)}&sort=new`;
+        logger.info(`Subreddit not found. Retrying via Reddit search URL: ${url}`, 'RedditScraper');
+        response = await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+      }
+
       if (response && (response.status() === 403 || response.status() === 429)) {
         throw new Error(`Reddit security blocked request with status: ${response.status()}`);
       }
@@ -116,92 +131,163 @@ export class RedditScraper {
 
       // Locate shreddit-post elements (Modern Reddit post container)
       const postElements = await page.locator('shreddit-post').all();
-      logger.info(`Found ${postElements.length} post containers in r/${subreddit}`, 'RedditScraper');
+      logger.info(`Found ${postElements.length} shreddit post containers for: ${cleanTarget}`, 'RedditScraper');
 
-      for (const element of postElements) {
-        if (items.length >= limit) break;
-        try {
-          const id = await element.getAttribute('id');
-          if (!id) {
-            logger.debug('Skipping element: missing id attribute.', 'RedditScraper');
-            continue;
-          }
+      if (postElements.length > 0) {
+        for (const element of postElements) {
+          if (items.length >= limit) break;
+          try {
+            const id = await element.getAttribute('id');
+            if (!id) continue;
 
-          const postTitle = await element.getAttribute('post-title') || '';
-          const permalink = await element.getAttribute('permalink') || '';
-          const postUrl = permalink ? `https://www.reddit.com${permalink}` : (await element.getAttribute('content-href') || '');
-          const author = await element.getAttribute('author') || '[deleted]';
-          const scoreStr = await element.getAttribute('score') || '0';
-          const commentCountStr = await element.getAttribute('comment-count') || '0';
-          const createdTimestamp = await element.getAttribute('created-timestamp') || new Date().toISOString();
-          const pubTime = new Date(createdTimestamp).getTime();
-
-          if (startDate) {
-            const start = new Date(startDate).getTime();
-            if (pubTime < start) {
-              logger.debug(`Reddit: Skipping post older than start date (${startDate})`, 'RedditScraper');
-              continue;
+            const postTitle = await element.getAttribute('post-title') || '';
+            const permalink = await element.getAttribute('permalink') || '';
+            const postUrl = permalink ? `https://www.reddit.com${permalink}` : (await element.getAttribute('content-href') || '');
+            // 1. Author Username Extraction
+            let author = await element.getAttribute('author');
+            if (!author || author === '[deleted]' || author.trim() === '') {
+              const authorEl = element.locator('a[href*="/user/"], a[href*="/u/"], [slot="authorName"]').first();
+              if (await authorEl.count() > 0) {
+                const text = (await authorEl.innerText()).trim();
+                if (text) {
+                  author = text.replace(/^u\//, '');
+                } else {
+                  const userHref = await authorEl.getAttribute('href');
+                  const uMatch = userHref?.match(/\/u(?:ser)?\/([^\/]+)/);
+                  if (uMatch) author = uMatch[1];
+                }
+              }
             }
-          }
-          if (endDate) {
-            const end = new Date(endDate).getTime();
-            if (pubTime > end) {
-              logger.debug(`Reddit: Skipping post newer than end date (${endDate})`, 'RedditScraper');
-              continue;
+
+            const subredditName = await element.getAttribute('subreddit-name') || cleanTarget;
+
+            if (!author || author === '[deleted]' || author.trim() === '') {
+              author = subredditName ? `r/${subredditName}` : 'RedditUser';
             }
+
+            const scoreStr = await element.getAttribute('score') || '0';
+            const commentCountStr = await element.getAttribute('comment-count') || '0';
+            const createdTimestamp = await element.getAttribute('created-timestamp') || new Date().toISOString();
+            const pubTime = new Date(createdTimestamp).getTime();
+
+            if (startDate) {
+              const start = new Date(startDate).getTime();
+              if (pubTime < start) continue;
+            }
+            if (endDate) {
+              const end = new Date(endDate).getTime();
+              if (pubTime > end) continue;
+            }
+
+            const upvotes = parseInt(scoreStr, 10) || 0;
+            const commentsCount = parseInt(commentCountStr, 10) || 0;
+
+            const publishedAt = new Date(createdTimestamp).toISOString();
+            const textBodyEl = element.locator('shreddit-post-text-body, [slot="text-body"]');
+            let content = '';
+            if (await textBodyEl.count() > 0) {
+              content = await textBodyEl.first().innerText();
+            } else {
+              content = postTitle;
+            }
+
+            const metadata: any = {
+              subreddit: subredditName,
+              upvotes,
+              commentsCount,
+              score: upvotes
+            };
+
+            if (extractComments && postUrl) {
+              metadata.comments = await fetchRedditComments(postUrl);
+            }
+
+            const rawItem: RawCrawledItem = {
+              id,
+              source: 'reddit',
+              url: postUrl,
+              title: postTitle,
+              content: content.trim() || postTitle,
+              author,
+              publishedAt,
+              crawledAt: new Date().toISOString(),
+              metadata
+            };
+
+            items.push(rawItem);
+          } catch (postError) {
+            logger.error(`Error parsing individual post inside r/${subreddit}`, postError as Error, 'RedditScraper');
           }
+        }
+      } else {
+        // Fallback: Parse Reddit Search page result cards (a[href*="/comments/"])
+        logger.info(`shreddit-post count is 0. Parsing Reddit search card links for query: "${cleanTarget}"`, 'RedditScraper');
+        const searchLinks = await page.locator('a[href*="/comments/"]').all();
+        const seenUrls = new Set<string>();
 
-          const subredditName = await element.getAttribute('subreddit-name') || subreddit;
+        for (const link of searchLinks) {
+          if (items.length >= limit) break;
+          try {
+            const href = await link.getAttribute('href');
+            if (!href || !href.includes('/comments/')) continue;
 
-          const upvotes = parseInt(scoreStr, 10) || 0;
-          const commentsCount = parseInt(commentCountStr, 10) || 0;
+            const fullUrl = href.startsWith('http') ? href : `https://www.reddit.com${href}`;
+            const cleanUrl = fullUrl.split('?')[0];
 
-          // Detect locked / over18 states from classes and attributes
-          const classAttr = await element.getAttribute('class') || '';
-          const isLocked = classAttr.includes('locked');
-          const isOver18 = classAttr.includes('over18') || (await element.getAttribute('nsfw')) !== null;
+            if (seenUrls.has(cleanUrl)) continue;
 
-          // Parse UTC published timestamp
-          const publishedAt = new Date(createdTimestamp).toISOString();
+            const rawText = (await link.innerText()).trim();
+            const title = rawText.split('\n')[0].trim();
 
-          // Extract text content (body) if it exists, otherwise list link
-          const textBodyEl = element.locator('shreddit-post-text-body, [slot="text-body"]');
-          let content = '';
-          if (await textBodyEl.count() > 0) {
-            content = await textBodyEl.first().innerText();
-          } else {
-            content = `[External Link Post] ${postUrl}`;
+            if (!title || title.length < 3) continue;
+
+            seenUrls.add(cleanUrl);
+
+            const match = cleanUrl.match(/\/comments\/([a-zA-Z0-9]+)/);
+            const postId = match ? match[1] : Math.random().toString(36).substring(2, 9);
+
+            let author = 'RedditUser';
+            let subredditName = cleanTarget;
+
+            if (cleanUrl.includes('/user/')) {
+              const userMatch = cleanUrl.match(/\/user\/([^\/]+)/);
+              if (userMatch) author = userMatch[1];
+            } else if (cleanUrl.includes('/r/')) {
+              const subMatch = cleanUrl.match(/\/r\/([^\/]+)/);
+              if (subMatch) {
+                subredditName = subMatch[1];
+                const authorEl = link.locator('xpath=ancestor::faceplate-tracker[1]//a[contains(@href, "/user/") or contains(@href, "/u/")]').first();
+                if (await authorEl.count() > 0) {
+                  const uText = (await authorEl.innerText()).trim();
+                  if (uText) author = uText.replace(/^u\//, '');
+                }
+                if (!author || author === 'RedditUser') {
+                  author = `r/${subredditName}`;
+                }
+              }
+            }
+
+            const rawItem: RawCrawledItem = {
+              id: `reddit_${postId}`,
+              source: 'reddit',
+              url: cleanUrl,
+              title,
+              content: title,
+              author,
+              publishedAt: new Date().toISOString(),
+              crawledAt: new Date().toISOString(),
+              metadata: {
+                subreddit: subredditName,
+                upvotes: 1,
+                commentsCount: 0,
+                score: 1
+              }
+            };
+
+            items.push(rawItem);
+          } catch (searchCardErr) {
+            logger.error('Error parsing Reddit search result card', searchCardErr as Error, 'RedditScraper');
           }
-
-          const metadata: any = {
-            subreddit: subredditName,
-            upvotes,
-            commentsCount,
-            isLocked,
-            isOver18,
-            score: upvotes
-          };
-
-          if (extractComments && postUrl) {
-            logger.info(`Fetching deep comments for post: ${id}`, 'RedditScraper');
-            metadata.comments = await fetchRedditComments(postUrl);
-          }
-
-          const rawItem: RawCrawledItem = {
-            id,
-            source: 'reddit',
-            url: postUrl,
-            title: postTitle,
-            content: content.trim(),
-            author,
-            publishedAt,
-            crawledAt: new Date().toISOString(),
-            metadata
-          };
-
-          items.push(rawItem);
-        } catch (postError) {
-          logger.error(`Error parsing individual post inside r/${subreddit}`, postError as Error, 'RedditScraper');
         }
       }
 

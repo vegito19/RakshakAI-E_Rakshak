@@ -806,17 +806,15 @@ fastify.post('/api/crawler/extract', async (request: FastifyRequest, reply: Fast
             ? 'reels' 
             : mode === 'hashtag' 
               ? 'hashtag' 
-              : mode === 'location' 
-                ? 'location' 
-                : mode === 'explore_reels' 
-                  ? 'explore_reels' 
-                  : 'profile';
+              : mode === 'profile'
+                ? 'profile'
+                : 'search';
           items = await instagramScraper.scrape(igMode as any, target, runLimit, startDate, endDate, true);
           break;
 
         case 'twitter':
         case 'x':
-          const twMode = mode === 'hashtag' ? 'hashtag' : mode === 'location' ? 'location' : mode === 'handle' ? 'handle' : 'search';
+          const twMode = mode === 'hashtag' ? 'hashtag' : (mode === 'handle' || mode === 'profile') ? 'handle' : 'search';
           items = await twitterScraper.scrape(twMode, target, runLimit, startDate, endDate, true);
           break;
 
