@@ -3625,10 +3625,28 @@
                 }
               }
 
-              function downloadSeizedFile(filePath, fileName) {
+              async function downloadSeizedFile(filePath, fileName) {
                 const serial = document.getElementById('devSerial').textContent.trim() || '91e3a45';
                 const url = `/api/forensics/download?filePath=${encodeURIComponent(filePath)}&serial=${encodeURIComponent(serial)}&token=${encodeURIComponent(jwtToken)}`;
-                window.open(url, '_blank');
+                try {
+                  const res = await fetch(url);
+                  if (!res.ok) {
+                    const text = await res.text();
+                    throw new Error(text || 'Failed to download file from ADB device');
+                  }
+                  const blob = await res.blob();
+                  const blobUrl = URL.createObjectURL(blob);
+                  const a = document.createElement('a');
+                  a.href = blobUrl;
+                  a.download = fileName || 'seized_document.pdf';
+                  a.target = '_blank';
+                  document.body.appendChild(a);
+                  a.click();
+                  document.body.removeChild(a);
+                  setTimeout(() => URL.revokeObjectURL(blobUrl), 10000);
+                } catch (err) {
+                  alert('File Download Error: ' + err.message);
+                }
               }
 
               function openWhatsAppDecryptionModal(dbPath, dbName) {
