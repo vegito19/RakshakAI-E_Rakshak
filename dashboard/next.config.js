@@ -8,8 +8,8 @@ const nextConfig = {
     ignoreDuringBuilds: true,
   },
   async rewrites() {
-    // User's exact Render backend URL: https://rakshak-backend-fhyt.onrender.com
-    const rawBackendUrl = process.env.NEXT_PUBLIC_API_URL || 'https://rakshak-backend-fhyt.onrender.com';
+    // Serveo permanent local tunnel URL: https://rakshak-surat-police.serveo.net
+    const rawBackendUrl = process.env.NEXT_PUBLIC_API_URL || 'https://rakshak-surat-police.serveo.net';
     const backendUrl = rawBackendUrl.replace(/\/$/, '');
 
     return [
