@@ -26,18 +26,15 @@ export class OtpAuthService {
 
     if (user && pass) {
       try {
-        if (user.includes('@gmail.com') || host === 'smtp.gmail.com') {
-          return nodemailer.createTransport({
-            service: 'gmail',
-            auth: { user, pass }
-          });
-        }
-
+        const isGmail = user.toLowerCase().includes('@gmail.com');
         return nodemailer.createTransport({
-          host: host || 'smtp.gmail.com',
-          port,
-          secure: port === 465,
-          auth: { user, pass }
+          host: isGmail ? 'smtp.gmail.com' : (host || 'smtp.gmail.com'),
+          port: isGmail ? 587 : port,
+          secure: false, // true for port 465, false for 587
+          auth: { user, pass },
+          tls: {
+            rejectUnauthorized: false
+          }
         });
       } catch (err) {
         logger.warn(`Failed to create SMTP transporter: ${(err as Error).message}`, 'OtpAuthService');
