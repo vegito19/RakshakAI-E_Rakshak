@@ -8,8 +8,8 @@ const nextConfig = {
     ignoreDuringBuilds: true,
   },
   async rewrites() {
-    // Serveo permanent local tunnel URL: https://rakshak-surat-police.serveo.net
-    const rawBackendUrl = process.env.NEXT_PUBLIC_API_URL || 'https://rakshak-surat-police.serveo.net';
+    // Localtunnel fixed public URL: https://rakshak-surat-police.loca.lt
+    const rawBackendUrl = process.env.NEXT_PUBLIC_API_URL || 'https://rakshak-surat-police.loca.lt';
     const backendUrl = rawBackendUrl.replace(/\/$/, '');
 
     return [
