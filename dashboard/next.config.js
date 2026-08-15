@@ -8,8 +8,8 @@ const nextConfig = {
     ignoreDuringBuilds: true,
   },
   async rewrites() {
-    // Cloudflare Quick Tunnel URL: https://cats-think-sizes-apparent.trycloudflare.com
-    const rawBackendUrl = process.env.NEXT_PUBLIC_API_URL || 'https://cats-think-sizes-apparent.trycloudflare.com';
+    // Cloudflare Quick Tunnel URL: https://reveals-teeth-between-contributing.trycloudflare.com
+    const rawBackendUrl = process.env.NEXT_PUBLIC_API_URL || 'https://reveals-teeth-between-contributing.trycloudflare.com';
     const backendUrl = rawBackendUrl.replace(/\/$/, '');
 
     return [
