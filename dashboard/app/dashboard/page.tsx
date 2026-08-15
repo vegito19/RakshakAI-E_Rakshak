@@ -56,6 +56,8 @@ const SURAT_LOCATIONS: Record<string, [number, number]> = {
 };
 
 export default function PoliceCommandDashboard() {
+  const [mounted, setMounted] = useState(false);
+
   // Authentication State
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [username, setUsername] = useState('');
@@ -108,8 +110,9 @@ export default function PoliceCommandDashboard() {
   const mapRef = useRef<any>(null);
   const markerLayerRef = useRef<any>(null);
 
-  // Check local token on mount
+  // Set mounted state and check local token on mount
   useEffect(() => {
+    setMounted(true);
     const savedToken = localStorage.getItem('rakshak_token');
     const savedUser = localStorage.getItem('rakshak_username');
     if (savedToken && savedUser) {
@@ -532,6 +535,10 @@ export default function PoliceCommandDashboard() {
       document.body.removeChild(iframe);
     }, 500);
   };
+
+  if (!mounted) {
+    return null;
+  }
 
   if (!isAuthenticated) {
     return (
