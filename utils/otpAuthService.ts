@@ -124,17 +124,24 @@ export class OtpAuthService {
           </div>
         `;
 
-        await transporter.sendMail({
+        // Send email with a strict 6-second timeout to prevent API request timeouts
+        const sendMailPromise = transporter.sendMail({
           from: `"Rakshak CrimeOS Auth" <${senderEmail}>`,
           to: email,
           subject: subjectMap[purpose],
           html: htmlContent
         });
+
+        const timeoutPromise = new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('SMTP dispatch timed out after 6s')), 6000)
+        );
+
+        await Promise.race([sendMailPromise, timeoutPromise]);
         emailDispatched = true;
         logger.info(`Official live email delivered successfully to: ${email}`, 'OtpAuthService');
       } catch (sendErr) {
         dispatchError = (sendErr as Error).message;
-        logger.warn(`Failed to dispatch SMTP email: ${dispatchError}`, 'OtpAuthService');
+        logger.warn(`SMTP email dispatch issue: ${dispatchError}. Falling back to instant security OTP mode.`, 'OtpAuthService');
       }
     } else {
       logger.info(`No SMTP credentials detected in .env. Running in local dev simulation mode for email: ${email}`, 'OtpAuthService');
