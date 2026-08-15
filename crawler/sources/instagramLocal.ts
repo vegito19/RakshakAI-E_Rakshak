@@ -140,14 +140,26 @@ export class InstagramScraper {
 
       context = await browser.newContext(contextOptions);
 
-      // Load cookies if available
+      // Load cookies if available (from Environment Variable OR local file)
+      const envCookies = process.env.INSTAGRAM_COOKIES;
       const cookiesDir = path.resolve(__dirname, '../cookies');
       const cookiesPath = path.join(cookiesDir, 'instagram.json');
-      if (fs.existsSync(cookiesPath)) {
+
+      if (envCookies) {
+        try {
+          const rawCookies = JSON.parse(envCookies);
+          const sanitizedCookies = sanitizeCookies(rawCookies);
+          await context.addCookies(sanitizedCookies);
+          logger.info('Loaded Instagram cookies from process.env.INSTAGRAM_COOKIES', 'InstagramScraper');
+        } catch (envCookieErr) {
+          logger.error('Error parsing INSTAGRAM_COOKIES env var', envCookieErr as Error, 'InstagramScraper');
+        }
+      } else if (fs.existsSync(cookiesPath)) {
         try {
           const rawCookies = JSON.parse(fs.readFileSync(cookiesPath, 'utf8'));
           const sanitizedCookies = sanitizeCookies(rawCookies);
           await context.addCookies(sanitizedCookies);
+          logger.info(`Loaded Instagram cookies from ${cookiesPath}`, 'InstagramScraper');
         } catch (cookieErr) {
           logger.debug('No cookies loaded or cookie syntax error');
         }

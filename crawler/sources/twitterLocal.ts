@@ -100,13 +100,24 @@ export class TwitterScraper {
 
       const context = await browser.newContext(contextOptions);
 
-      // Load cookies
+      // Load cookies if available (from Environment Variable OR local file)
+      const envCookies = process.env.TWITTER_COOKIES;
       const cookiesDir = path.resolve(__dirname, '../cookies');
       if (!fs.existsSync(cookiesDir)) {
         fs.mkdirSync(cookiesDir, { recursive: true });
       }
       const cookiesPath = path.join(cookiesDir, 'twitter.json');
-      if (fs.existsSync(cookiesPath)) {
+
+      if (envCookies) {
+        try {
+          const rawCookies = JSON.parse(envCookies);
+          const sanitizedCookies = sanitizeCookies(rawCookies);
+          await context.addCookies(sanitizedCookies);
+          logger.info('Loaded Twitter cookies from process.env.TWITTER_COOKIES', 'TwitterScraper');
+        } catch (envCookieErr) {
+          logger.error('Error parsing TWITTER_COOKIES env var', envCookieErr as Error, 'TwitterScraper');
+        }
+      } else if (fs.existsSync(cookiesPath)) {
         try {
           const rawCookies = JSON.parse(fs.readFileSync(cookiesPath, 'utf8'));
           const sanitizedCookies = sanitizeCookies(rawCookies);
