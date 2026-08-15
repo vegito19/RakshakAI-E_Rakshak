@@ -523,6 +523,17 @@ fastify.get('/api/auth/me', { preHandler: [authenticate] }, async (req, reply) =
 });
 
 /**
+ * Health check endpoints for Uptime & Keep-Alive Pings (cron-job.org)
+ */
+fastify.get('/api/health', async (_request: FastifyRequest, reply: FastifyReply) => {
+  reply.send({ status: 'ok', timestamp: new Date().toISOString(), service: 'Rakshak AI Backend' });
+});
+
+fastify.get('/health', async (_request: FastifyRequest, reply: FastifyReply) => {
+  reply.send({ status: 'ok', timestamp: new Date().toISOString(), service: 'Rakshak AI Backend' });
+});
+
+/**
  * Send 6-Digit Email OTP for Login, Registration, or Password Reset
  */
 fastify.post('/api/auth/send-otp', async (request: FastifyRequest, reply: FastifyReply) => {
