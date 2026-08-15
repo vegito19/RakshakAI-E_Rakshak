@@ -1,8 +1,14 @@
 node_modules/
 dist/
 *.log
-.env
+.env
+.env*
+.env.local
 .env*.local
+
+# Crawling cookies and session data
+crawler/cookies/
+*.json.cookie
 
 .gemini/
 
