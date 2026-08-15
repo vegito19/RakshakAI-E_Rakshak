@@ -8,8 +8,8 @@ const nextConfig = {
     ignoreDuringBuilds: true,
   },
   async rewrites() {
-    // Cloudflare Quick Tunnel URL: https://reveals-teeth-between-contributing.trycloudflare.com
-    const rawBackendUrl = process.env.NEXT_PUBLIC_API_URL || 'https://reveals-teeth-between-contributing.trycloudflare.com';
+    // Cloudflare Quick Tunnel URL: https://formed-exposed-since-mode.trycloudflare.com
+    const rawBackendUrl = process.env.NEXT_PUBLIC_API_URL || 'https://formed-exposed-since-mode.trycloudflare.com';
     const backendUrl = rawBackendUrl.replace(/\/$/, '');
 
     return [
