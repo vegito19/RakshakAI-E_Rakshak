@@ -6,7 +6,8 @@
   "scripts": {
     "crawler": "ts-node crawler/crawler.ts",
     "crawler:test": "ts-node crawler/crawler.ts --test",
-    "start": "ts-node api/src/server.ts",
+    "start": "node dist/api/src/server.js",
+    "dev": "ts-node api/src/server.ts",
     "build": "tsc"
   },
   "dependencies": {
