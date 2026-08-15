@@ -2031,6 +2031,36 @@
 
             <!-- APPLICATION JAVASCRIPT -->
             <script>
+              // Global Fetch Interceptor to attach Localtunnel / Proxy headers & handle non-JSON responses safely
+              const originalFetch = window.fetch;
+              window.fetch = async function (url, options) {
+                options = options || {};
+                options.headers = options.headers || {};
+                if (options.headers instanceof Headers) {
+                  options.headers.set('Bypass-Tunnel-Reminder', 'true');
+                  options.headers.set('bypass-tunnel-reminder', 'true');
+                } else if (Array.isArray(options.headers)) {
+                  options.headers.push(['Bypass-Tunnel-Reminder', 'true']);
+                  options.headers.push(['bypass-tunnel-reminder', 'true']);
+                } else {
+                  options.headers['Bypass-Tunnel-Reminder'] = 'true';
+                  options.headers['bypass-tunnel-reminder'] = 'true';
+                }
+
+                const res = await originalFetch(url, options);
+
+                // Intercept non-JSON HTML (e.g. Localtunnel landing page, Vercel 502/504 proxy errors)
+                const contentType = res.headers.get('content-type') || '';
+                if (typeof url === 'string' && url.includes('/api/') && !contentType.includes('application/json')) {
+                  const cloned = res.clone();
+                  const rawText = await cloned.text();
+                  if (rawText.trim().startsWith('<') || res.status === 502 || res.status === 504) {
+                    throw new Error(`Tunnel/Backend returned non-JSON response (${res.status}). Please check server logs or retry.`);
+                  }
+                }
+                return res;
+              };
+
               let jwtToken = localStorage.getItem('rakshak_token') || '';
               if (jwtToken === 'undefined' || jwtToken === 'null' || !jwtToken) {
                 jwtToken = '';
