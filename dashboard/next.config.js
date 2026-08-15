@@ -8,8 +8,8 @@ const nextConfig = {
     ignoreDuringBuilds: true,
   },
   async rewrites() {
-    // Render API backend target (falls back to process.env.NEXT_PUBLIC_API_URL or onrender endpoint)
-    const rawBackendUrl = process.env.NEXT_PUBLIC_API_URL || 'https://rakshak-backend.onrender.com';
+    // User's exact Render backend URL: https://rakshak-backend-fhyt.onrender.com
+    const rawBackendUrl = process.env.NEXT_PUBLIC_API_URL || 'https://rakshak-backend-fhyt.onrender.com';
     const backendUrl = rawBackendUrl.replace(/\/$/, '');
 
     return [
