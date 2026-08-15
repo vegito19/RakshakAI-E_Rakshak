@@ -2179,7 +2179,18 @@
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ email, purpose })
                   });
-                  const data = await res.json();
+                  let data;
+                  const contentType = res.headers.get('content-type') || '';
+                  if (contentType.includes('application/json')) {
+                    data = await res.json();
+                  } else {
+                    const rawText = await res.text();
+                    if (res.status === 502 || res.status === 504 || rawText.includes('An error')) {
+                      throw new Error('Render backend API is waking up from sleep. Please wait 10 seconds and click SEND CODE again.');
+                    }
+                    throw new Error(`Server returned HTTP ${res.status}: ${rawText.slice(0, 100)}`);
+                  }
+
                   btn.disabled = false;
                   btn.textContent = 'RESEND OTP';
 
