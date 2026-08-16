@@ -1,5 +1,6 @@
 import * as dotenv from 'dotenv';
 dotenv.config();
+process.env.PLAYWRIGHT_BROWSERS_PATH = process.env.PLAYWRIGHT_BROWSERS_PATH || '0';
 
 import Fastify, { FastifyInstance, FastifyReply, FastifyRequest, FastifyError } from 'fastify';
 import cors from '@fastify/cors';
