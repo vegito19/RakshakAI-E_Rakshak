@@ -320,7 +320,8 @@ export class RedditScraper {
       logger.info(`Fetching Reddit live RSS feed fallback: ${rssUrl}`, 'RedditScraper');
       const res = await axios.get(rssUrl, {
         headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
+          'User-Agent': 'RakshakOSINT/1.0.0 (CrimeOS; contact@suratpolice.gov.in)',
+          'Accept': 'application/rss+xml, application/xml, text/xml'
         },
         timeout: 10000
       });
