@@ -2183,12 +2183,15 @@
               async function requestOtp(purpose) {
                 let emailInputId = 'loginEmail';
                 let btnId = 'loginSendOtpBtn';
+                let pinInputId = 'loginOtp';
                 if (purpose === 'REGISTER') {
                   emailInputId = 'regEmail';
                   btnId = 'regSendOtpBtn';
+                  pinInputId = 'regOtp';
                 } else if (purpose === 'FORGOT_PASSWORD') {
                   emailInputId = 'forgotEmail';
                   btnId = 'forgotSendOtpBtn';
+                  pinInputId = 'forgotOtp';
                 }
 
                 const email = document.getElementById(emailInputId).value.trim();

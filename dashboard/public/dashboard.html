@@ -2183,12 +2183,15 @@
               async function requestOtp(purpose) {
                 let emailInputId = 'loginEmail';
                 let btnId = 'loginSendOtpBtn';
+                let pinInputId = 'loginOtp';
                 if (purpose === 'REGISTER') {
                   emailInputId = 'regEmail';
                   btnId = 'regSendOtpBtn';
+                  pinInputId = 'regOtp';
                 } else if (purpose === 'FORGOT_PASSWORD') {
                   emailInputId = 'forgotEmail';
                   btnId = 'forgotSendOtpBtn';
+                  pinInputId = 'forgotOtp';
                 }
 
                 const email = document.getElementById(emailInputId).value.trim();
@@ -2233,6 +2236,11 @@
                   const banner = document.getElementById('otpStatusBanner');
                   banner.classList.remove('hidden');
                   document.getElementById('otpStatusMessage').textContent = data.message;
+
+                  if (data.devOtp) {
+                    const pinInput = document.getElementById(pinInputId);
+                    if (pinInput) pinInput.value = data.devOtp;
+                  }
 
                   if (data.liveEmailDelivered) {
                     document.getElementById('otpStatusTitle').innerHTML = ' Email OTP delivered to inbox....';
