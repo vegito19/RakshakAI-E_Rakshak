@@ -1,4 +1,5 @@
 import { chromium, Browser, Page } from 'playwright';
+import axios from 'axios';
 import { RawCrawledItem } from '../../shared-types/crawler';
 import { logger } from '../../utils/logger';
 import { proxyRotator } from './proxyRotator';
@@ -254,13 +255,82 @@ export class YouTubeScraper {
         }
       }
     } catch (err) {
-      logger.error('YouTube scraper run failed', err as Error, 'YouTubeScraper');
+      logger.warn(`Playwright YouTube scraper unavailable or failed (${(err as Error).message}). Triggering Direct HTTP scraper fallback...`, 'YouTubeScraper');
     } finally {
       if (page) {
         await page.close().catch(() => {});
       }
     }
 
+    if (items.length === 0) {
+      logger.info('Attempting YouTube Direct HTTP Extraction fallback...', 'YouTubeScraper');
+      const directItems = await this.scrapeViaDirectHttp(mode, target, limit);
+      return directItems;
+    }
+
+    return items;
+  }
+
+  private async scrapeViaDirectHttp(mode: 'search' | 'channel', target: string, limit: number): Promise<RawCrawledItem[]> {
+    const items: RawCrawledItem[] = [];
+    try {
+      const url = mode === 'search' 
+        ? `https://www.youtube.com/results?search_query=${encodeURIComponent(target)}`
+        : `https://www.youtube.com/@${target.replace('@', '')}/videos`;
+
+      logger.info(`YouTube Direct HTTP Fallback: Fetching ${url}`, 'YouTubeScraper');
+      const res = await axios.get(url, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+          'Accept-Language': 'en-US,en;q=0.9'
+        },
+        timeout: 12000
+      });
+
+      const html = res.data;
+      const match = html.match(/var ytInitialData = ({.*?});<\/script>/s) || html.match(/window\["ytInitialData"\] = ({.*?});/s);
+      
+      if (match) {
+        const data = JSON.parse(match[1]);
+        const contents = data.contents?.twoColumnSearchResultsRenderer?.primaryContents?.sectionListRenderer?.contents;
+        
+        if (contents) {
+          for (const section of contents) {
+            const itemSection = section.itemSectionRenderer?.contents;
+            if (itemSection) {
+              for (const item of itemSection) {
+                if (items.length >= limit) break;
+                const video = item.videoRenderer;
+                if (video) {
+                  const videoId = video.videoId;
+                  const title = video.title?.runs?.[0]?.text || `YouTube Video for ${target}`;
+                  const author = video.ownerText?.runs?.[0]?.text || target.replace('@', '');
+                  const viewsText = video.viewCountText?.simpleText || '0 views';
+                  const relativeTimeText = video.publishedTimeText?.simpleText || 'Recently';
+                  
+                  items.push({
+                    id: `youtube_${videoId}`,
+                    source: 'youtube',
+                    url: `https://www.youtube.com/watch?v=${videoId}`,
+                    title,
+                    content: `[YouTube Video] Title: ${title} | Channel: ${author}`,
+                    author,
+                    publishedAt: parseRelativeDate(relativeTimeText),
+                    crawledAt: new Date().toISOString(),
+                    metadata: {
+                      viewsCount: parseViews(viewsText),
+                      relativeTime: relativeTimeText
+                    }
+                  });
+                }
+              }
+            }
+          }
+        }
+      }
+    } catch (err) {
+      logger.error('YouTube Direct HTTP Scrape error', err as Error, 'YouTubeScraper');
+    }
     return items;
   }
 }

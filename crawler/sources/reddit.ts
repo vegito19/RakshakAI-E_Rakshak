@@ -312,7 +312,7 @@ export class RedditScraper {
     try {
       const axios = (await import('axios')).default;
       const cleanTarget = target.trim();
-      const isSubredditFormat = /^[a-zA-Z0-9_]+$/.test(cleanTarget) && ['surat', 'gujarat', 'india', 'news', 'delhi'].includes(cleanTarget.toLowerCase());
+      const isSubredditFormat = /^[a-zA-Z0-9_]+$/.test(cleanTarget) && !cleanTarget.includes(' ');
       const rssUrl = isSubredditFormat 
         ? `https://www.reddit.com/r/${cleanTarget}/new.rss`
         : `https://www.reddit.com/search.rss?q=${encodeURIComponent(cleanTarget)}&sort=new`;
