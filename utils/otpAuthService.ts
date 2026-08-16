@@ -54,7 +54,7 @@ export class OtpAuthService {
   public async generateAndSendOtp(
     rawEmail: string,
     purpose: OtpPurpose
-  ): Promise<{ success: boolean; message: string; email: string; purpose: OtpPurpose; devOtp?: string; liveEmailDelivered: boolean }> {
+  ): Promise<{ success: boolean; message: string; email: string; purpose: OtpPurpose; devOtp?: string; liveEmailDelivered: boolean; expiresInSeconds?: number }> {
     const email = rawEmail.trim().toLowerCase();
 
     // 1. Generate 6-digit numeric OTP
