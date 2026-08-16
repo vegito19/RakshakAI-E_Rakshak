@@ -8,8 +8,8 @@ const nextConfig = {
     ignoreDuringBuilds: true,
   },
   async rewrites() {
-    // Dedicated Subdomain Backend: https://rakshak-surat-police.loca.lt
-    const rawBackendUrl = process.env.NEXT_PUBLIC_API_URL || 'https://rakshak-surat-police.loca.lt';
+    // Cloudflare Quick Tunnel URL: https://promo-lunch-importantly-assumptions.trycloudflare.com
+    const rawBackendUrl = process.env.NEXT_PUBLIC_API_URL || 'https://promo-lunch-importantly-assumptions.trycloudflare.com';
     const backendUrl = rawBackendUrl.replace(/\/$/, '');
 
     return [
