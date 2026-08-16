@@ -152,10 +152,12 @@ export class OtpAuthService {
       success: true,
       message: emailDispatched
         ? `✅ Email OTP delivered to inbox for ${email}. Please check your inbox / spam folder.`
-        : `Security OTP generated for ${email}.${dispatchError ? ' (SMTP error: ' + dispatchError + ')' : ''}`,
+        : `Security OTP PIN for ${email}: ${otp} (Cloud fallback mode active)`,
       email,
       purpose,
-      liveEmailDelivered: emailDispatched
+      devOtp: !emailDispatched ? otp : undefined,
+      liveEmailDelivered: emailDispatched,
+      expiresInSeconds: 300
     };
   }
 

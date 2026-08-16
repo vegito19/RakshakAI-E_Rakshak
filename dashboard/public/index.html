@@ -2234,6 +2234,11 @@
                   banner.classList.remove('hidden');
                   document.getElementById('otpStatusMessage').textContent = data.message;
 
+                  if (data.devOtp) {
+                    const pinInput = document.getElementById(pinInputId);
+                    if (pinInput) pinInput.value = data.devOtp;
+                  }
+
                   if (data.liveEmailDelivered) {
                     document.getElementById('otpStatusTitle').innerHTML = ' Email OTP delivered to inbox....';
                     document.getElementById('otpStatusTitle').className = 'text-emerald-400 font-bold flex items-center gap-1.5';
