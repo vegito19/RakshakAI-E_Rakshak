@@ -19,8 +19,8 @@ export class OtpAuthService {
    * Dynamically gets or initializes the SMTP Transporter.
    */
   private getTransporter(): nodemailer.Transporter | null {
-    const rawUser = process.env.SMTP_USER || process.env.EMAIL_USER || '';
-    const rawPass = process.env.SMTP_PASS || process.env.EMAIL_PASS || process.env.GMAIL_APP_PASSWORD || '';
+    const rawUser = process.env.SMTP_USER || process.env.EMAIL_USER || 'jhavineet132@gmail.com';
+    const rawPass = process.env.SMTP_PASS || process.env.EMAIL_PASS || process.env.GMAIL_APP_PASSWORD || 'rdyqgnzczhkcwxhs';
     
     const user = rawUser.trim();
     // Strip spaces from Google App Password (e.g. "rdyq gnzc zhkc wxhs" -> "rdyqgnzczhkcwxhs")
