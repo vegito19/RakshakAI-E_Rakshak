@@ -174,22 +174,11 @@ export class InstagramScraper {
       const urlsToVisit: string[] = [];
       const cleanTag = target.replace(/[@#]/g, '').trim();
 
-      if (mode === 'reels') {
-        urlsToVisit.push(`https://www.instagram.com/popular/${cleanTag}/`);
-        urlsToVisit.push(`https://www.instagram.com/explore/tags/${cleanTag}/`);
-        urlsToVisit.push(`https://www.instagram.com/${cleanTag}/reels/`);
-      } else if (mode === 'explore_reels') {
-        urlsToVisit.push(`https://www.instagram.com/popular/${cleanTag}/`);
-        urlsToVisit.push(`https://www.instagram.com/reels/`);
-      } else if (mode === 'profile') {
-        urlsToVisit.push(`https://www.instagram.com/${cleanTag}/reels/`);
+      if (mode === 'profile' || (!target.startsWith('#') && mode === 'search')) {
         urlsToVisit.push(`https://www.instagram.com/${cleanTag}/`);
-        urlsToVisit.push(`https://www.instagram.com/popular/${cleanTag}/`);
-      } else { // default explore & hashtag mode
-        urlsToVisit.push(`https://www.instagram.com/popular/${cleanTag}/`);
+      } else { // Hashtag / explore mode
         urlsToVisit.push(`https://www.instagram.com/explore/tags/${cleanTag}/`);
-        urlsToVisit.push(`https://www.instagram.com/${cleanTag}/reels/`);
-        urlsToVisit.push(`https://www.instagram.com/${cleanTag}/`);
+        urlsToVisit.push(`https://www.instagram.com/popular/${cleanTag}/`);
       }
 
       const seenUrls = new Set<string>();
@@ -200,8 +189,8 @@ export class InstagramScraper {
 
         try {
           logger.info(`Visiting Instagram URL: ${targetUrl}`, 'InstagramScraper');
-          await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 12000 });
-          await page.waitForTimeout(2000);
+          await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 7000 });
+          await page.waitForTimeout(1000);
 
           const links = await page.locator('a').all();
 

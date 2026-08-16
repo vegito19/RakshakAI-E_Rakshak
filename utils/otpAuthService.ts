@@ -134,21 +134,18 @@ export class OtpAuthService {
           </div>
         `;
 
-        // Send email with a 25-second timeout to allow cloud TLS handshake to complete
-        const sendMailPromise = transporter.sendMail({
+        // Dispatch email asynchronously so API responds instantly without cloud gateway timeouts
+        emailDispatched = true;
+        transporter.sendMail({
           from: `"Rakshak CrimeOS Auth" <${senderEmail}>`,
           to: email,
           subject: subjectMap[purpose],
           html: htmlContent
+        }).then(() => {
+          logger.info(`Official live email delivered successfully to: ${email}`, 'OtpAuthService');
+        }).catch((sendErr) => {
+          logger.warn(`SMTP email dispatch background issue: ${(sendErr as Error).message}`, 'OtpAuthService');
         });
-
-        const timeoutPromise = new Promise((_, reject) =>
-          setTimeout(() => reject(new Error('SMTP dispatch timed out after 25s')), 25000)
-        );
-
-        await Promise.race([sendMailPromise, timeoutPromise]);
-        emailDispatched = true;
-        logger.info(`Official live email delivered successfully to: ${email}`, 'OtpAuthService');
       } catch (sendErr) {
         dispatchError = (sendErr as Error).message;
         logger.warn(`SMTP email dispatch issue: ${dispatchError}. Falling back to instant security OTP mode.`, 'OtpAuthService');
