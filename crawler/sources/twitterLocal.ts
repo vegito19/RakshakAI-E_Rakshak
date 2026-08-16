@@ -39,12 +39,12 @@ function sanitizeCookies(cookies: any[]): any[] {
     const cookie = { ...c };
     if ('id' in cookie) delete cookie.id;
     if (cookie.sameSite) {
-      const ss = cookie.sameSite.toLowerCase();
+      const ss = String(cookie.sameSite).toLowerCase();
       if (ss === 'strict') {
         cookie.sameSite = 'Strict';
       } else if (ss === 'lax') {
         cookie.sameSite = 'Lax';
-      } else if (ss === 'none' || ss === 'no_restriction' || ss === 'unspecified') {
+      } else if (ss === 'none' || ss === 'no_restriction') {
         cookie.sameSite = 'None';
       } else {
         delete cookie.sameSite;
