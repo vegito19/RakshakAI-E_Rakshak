@@ -8,8 +8,8 @@ const nextConfig = {
     ignoreDuringBuilds: true,
   },
   async rewrites() {
-    // Cloudflare Quick Tunnel URL: https://promo-lunch-importantly-assumptions.trycloudflare.com
-    const rawBackendUrl = process.env.NEXT_PUBLIC_API_URL || 'https://promo-lunch-importantly-assumptions.trycloudflare.com';
+    // Live Cloud Render Backend: https://rakshak-backend-fhyt.onrender.com
+    const rawBackendUrl = process.env.NEXT_PUBLIC_API_URL || 'https://rakshak-backend-fhyt.onrender.com';
     const backendUrl = rawBackendUrl.replace(/\/$/, '');
 
     return [
