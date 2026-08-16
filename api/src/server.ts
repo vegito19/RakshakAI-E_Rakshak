@@ -1,7 +1,9 @@
+import * as dotenv from 'dotenv';
+dotenv.config();
+
 import Fastify, { FastifyInstance, FastifyReply, FastifyRequest, FastifyError } from 'fastify';
 import cors from '@fastify/cors';
 import bcrypt from 'bcrypt';
-import * as dotenv from 'dotenv';
 import * as fs from 'fs';
 import * as path from 'path';
 import { exec } from 'child_process';
@@ -36,8 +38,6 @@ import { otpAuthService } from '../../utils/otpAuthService';
 import { forensicsTriage } from '../../utils/forensicsTriage';
 import { realAdbBridge } from '../../utils/realAdbBridge';
 import { cdrAnalyzer } from '../../utils/cdrAnalyzer';
-
-dotenv.config();
 
 interface UserRegistrationDto {
   username?: string;
@@ -847,7 +847,9 @@ fastify.post('/api/crawler/extract', async (request: FastifyRequest, reply: Fast
     }
 
     // Call Mock Generator if scrapers return no items (for reliable demo evaluation)
+    let isMockFallback = false;
     if (items.length === 0) {
+      isMockFallback = true;
       logger.info(`No items retrieved from live scraping. Invoking fallback generator for target: "${target}"`, 'APIServer');
       items = generateMockOSINT(platform.toLowerCase() as SocialSource, mode || 'search', target, runLimit);
     }
@@ -958,6 +960,7 @@ fastify.post('/api/crawler/extract', async (request: FastifyRequest, reply: Fast
       platform,
       target,
       count: filteredItems.length,
+      isLiveScrape: !isMockFallback,
       summary,
       data: processedItems
     });
