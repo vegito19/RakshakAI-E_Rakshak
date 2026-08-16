@@ -816,11 +816,9 @@ fastify.post('/api/crawler/extract', async (request: FastifyRequest, reply: Fast
         case 'instagram':
           const igMode = (mode === 'reels' || target.toLowerCase().includes('reel')) 
             ? 'reels' 
-            : mode === 'hashtag' 
+            : mode === 'hashtag' || target.startsWith('#')
               ? 'hashtag' 
-              : mode === 'profile'
-                ? 'profile'
-                : 'search';
+              : 'profile';
           items = await instagramScraper.scrape(igMode as any, target, runLimit, startDate, endDate, true);
           break;
 
@@ -863,13 +861,14 @@ fastify.post('/api/crawler/extract', async (request: FastifyRequest, reply: Fast
       try {
         // 1. Save Raw Ingest
         await pool.query(`
-          INSERT INTO raw_posts (id, source, url, title, content, author, published_at, metadata)
-          VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+          INSERT INTO raw_posts (id, source, url, title, content, author, published_at, metadata, crawled_at)
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
           ON CONFLICT (id) DO UPDATE SET
             url = EXCLUDED.url,
             title = EXCLUDED.title,
             content = EXCLUDED.content,
-            metadata = EXCLUDED.metadata;
+            metadata = EXCLUDED.metadata,
+            crawled_at = NOW();
         `, [
           item.id,
           item.source,
