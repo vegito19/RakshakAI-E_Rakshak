@@ -110,12 +110,16 @@ export class TwitterScraper {
 
       if (envCookies) {
         try {
-          const rawCookies = JSON.parse(envCookies);
+          let cleanEnv = envCookies.trim();
+          if ((cleanEnv.startsWith("'") && cleanEnv.endsWith("'")) || (cleanEnv.startsWith('"') && cleanEnv.endsWith('"'))) {
+            cleanEnv = cleanEnv.slice(1, -1);
+          }
+          const rawCookies = JSON.parse(cleanEnv);
           const sanitizedCookies = sanitizeCookies(rawCookies);
           await context.addCookies(sanitizedCookies);
           logger.info('Loaded Twitter cookies from process.env.TWITTER_COOKIES', 'TwitterScraper');
         } catch (envCookieErr) {
-          logger.error('Error parsing TWITTER_COOKIES env var', envCookieErr as Error, 'TwitterScraper');
+          logger.error('Error parsing TWITTER_COOKIES env var: ' + (envCookieErr as Error).message, envCookieErr as Error, 'TwitterScraper');
         }
       } else if (fs.existsSync(cookiesPath)) {
         try {

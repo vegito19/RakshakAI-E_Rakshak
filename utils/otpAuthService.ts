@@ -129,7 +129,7 @@ export class OtpAuthService {
           </div>
         `;
 
-        // Send email with a strict 6-second timeout to prevent API request timeouts
+        // Send email with a 25-second timeout to allow cloud TLS handshake to complete
         const sendMailPromise = transporter.sendMail({
           from: `"Rakshak CrimeOS Auth" <${senderEmail}>`,
           to: email,
@@ -138,7 +138,7 @@ export class OtpAuthService {
         });
 
         const timeoutPromise = new Promise((_, reject) =>
-          setTimeout(() => reject(new Error('SMTP dispatch timed out after 6s')), 6000)
+          setTimeout(() => reject(new Error('SMTP dispatch timed out after 25s')), 25000)
         );
 
         await Promise.race([sendMailPromise, timeoutPromise]);

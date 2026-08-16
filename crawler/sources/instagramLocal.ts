@@ -147,12 +147,16 @@ export class InstagramScraper {
 
       if (envCookies) {
         try {
-          const rawCookies = JSON.parse(envCookies);
+          let cleanEnv = envCookies.trim();
+          if ((cleanEnv.startsWith("'") && cleanEnv.endsWith("'")) || (cleanEnv.startsWith('"') && cleanEnv.endsWith('"'))) {
+            cleanEnv = cleanEnv.slice(1, -1);
+          }
+          const rawCookies = JSON.parse(cleanEnv);
           const sanitizedCookies = sanitizeCookies(rawCookies);
           await context.addCookies(sanitizedCookies);
           logger.info('Loaded Instagram cookies from process.env.INSTAGRAM_COOKIES', 'InstagramScraper');
         } catch (envCookieErr) {
-          logger.error('Error parsing INSTAGRAM_COOKIES env var', envCookieErr as Error, 'InstagramScraper');
+          logger.error('Error parsing INSTAGRAM_COOKIES env var: ' + (envCookieErr as Error).message, envCookieErr as Error, 'InstagramScraper');
         }
       } else if (fs.existsSync(cookiesPath)) {
         try {
