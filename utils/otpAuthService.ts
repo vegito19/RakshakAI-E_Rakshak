@@ -21,16 +21,20 @@ export class OtpAuthService {
   private getTransporter(): nodemailer.Transporter | null {
     const user = process.env.SMTP_USER || process.env.EMAIL_USER;
     const pass = process.env.SMTP_PASS || process.env.EMAIL_PASS || process.env.GMAIL_APP_PASSWORD;
-    const host = process.env.SMTP_HOST || (user?.includes('@gmail.com') ? 'smtp.gmail.com' : undefined);
-    const port = parseInt(process.env.SMTP_PORT || (host === 'smtp.gmail.com' ? '465' : '587'), 10);
 
     if (user && pass) {
       try {
         const isGmail = user.toLowerCase().includes('@gmail.com');
+        if (isGmail) {
+          return nodemailer.createTransport({
+            service: 'gmail',
+            auth: { user, pass }
+          });
+        }
         return nodemailer.createTransport({
-          host: isGmail ? 'smtp.gmail.com' : (host || 'smtp.gmail.com'),
-          port: isGmail ? 587 : port,
-          secure: false, // true for port 465, false for 587
+          host: process.env.SMTP_HOST || 'smtp.gmail.com',
+          port: parseInt(process.env.SMTP_PORT || '465', 10),
+          secure: true,
           auth: { user, pass },
           tls: {
             rejectUnauthorized: false
