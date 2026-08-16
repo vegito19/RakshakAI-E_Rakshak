@@ -1870,6 +1870,13 @@ fastify.post('/api/forensics/triage', { preHandler: [authenticate] }, async (req
 });
 
 /**
+ * Dedicated 24/7 keep-alive health ping endpoint for cron jobs
+ */
+fastify.get('/api/health', async (request: FastifyRequest, reply: FastifyReply) => {
+  reply.send({ status: 'ok', timestamp: new Date().toISOString(), uptime: process.uptime() });
+});
+
+/**
  * Serve breathtaking, tactical command center dashboard for police.
  */
 fastify.get('/', async (request: FastifyRequest, reply: FastifyReply) => {
