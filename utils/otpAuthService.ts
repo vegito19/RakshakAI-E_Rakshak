@@ -26,6 +26,11 @@ export class OtpAuthService {
     // Strip spaces from Google App Password (e.g. "rdyq gnzc zhkc wxhs" -> "rdyqgnzczhkcwxhs")
     const pass = rawPass.replace(/\s+/g, '').trim();
 
+    let host = (process.env.SMTP_HOST || 'smtp.gmail.com').trim();
+    if (host === '587' || host === '465' || !host.includes('.')) {
+      host = 'smtp.gmail.com';
+    }
+
     if (user && pass) {
       try {
         const isGmail = user.toLowerCase().includes('@gmail.com');
@@ -36,7 +41,7 @@ export class OtpAuthService {
           });
         }
         return nodemailer.createTransport({
-          host: process.env.SMTP_HOST || 'smtp.gmail.com',
+          host,
           port: parseInt(process.env.SMTP_PORT || '587', 10),
           secure: process.env.SMTP_PORT === '465',
           auth: { user, pass },
