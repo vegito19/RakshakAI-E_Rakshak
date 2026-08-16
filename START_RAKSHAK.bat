@@ -7,7 +7,7 @@ echo.
 echo 1. Starting Fastify Backend on Port 5000...
 start "Rakshak Backend Port 5000" /min cmd /c "cd /d C:\Users\Vineet\OneDrive\Desktop\RakshakAI-E_Rakshak && npm start"
 
-timeout /t 3 /nobreak > nul
+timeout /t 10 /nobreak > nul
 
 echo 2. Launching Public Tunnel with Auto-Reconnect...
 start "Rakshak Public Tunnel" cmd /c "cd /d C:\Users\Vineet\OneDrive\Desktop\RakshakAI-E_Rakshak && run_tunnel.bat"
