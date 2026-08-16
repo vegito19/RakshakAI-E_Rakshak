@@ -31,13 +31,8 @@ export class OtpAuthService {
         const isGmail = user.toLowerCase().includes('@gmail.com');
         if (isGmail) {
           return nodemailer.createTransport({
-            host: process.env.SMTP_HOST || 'smtp.gmail.com',
-            port: parseInt(process.env.SMTP_PORT || '587', 10),
-            secure: process.env.SMTP_PORT === '465',
-            auth: { user, pass },
-            tls: {
-              rejectUnauthorized: false
-            }
+            service: 'gmail',
+            auth: { user, pass }
           });
         }
         return nodemailer.createTransport({
@@ -101,7 +96,7 @@ export class OtpAuthService {
           FORGOT_PASSWORD: 'Emergency Badge Access Password Reset'
         };
 
-        const senderEmail = process.env.SMTP_FROM || process.env.SMTP_USER || process.env.EMAIL_USER;
+        const senderEmail = process.env.SMTP_FROM || process.env.SMTP_USER || process.env.EMAIL_USER || 'jhavineet132@gmail.com';
 
         const htmlContent = `
           <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #020617; color: #f8fafc; padding: 24px; border-radius: 16px; max-width: 540px; margin: 0 auto; border: 1px solid #1e293b;">
@@ -136,13 +131,14 @@ export class OtpAuthService {
 
         // Dispatch email asynchronously so API responds instantly without cloud gateway timeouts
         emailDispatched = true;
+        const fromHeader = `Rakshak CrimeOS Auth <${senderEmail.trim()}>`;
         transporter.sendMail({
-          from: `"Rakshak CrimeOS Auth" <${senderEmail}>`,
+          from: fromHeader,
           to: email,
           subject: subjectMap[purpose],
           html: htmlContent
-        }).then(() => {
-          logger.info(`Official live email delivered successfully to: ${email}`, 'OtpAuthService');
+        }).then((info) => {
+          logger.info(`Official live email accepted by Gmail for ${email} (MessageID: ${info.messageId}, SMTP: ${info.response})`, 'OtpAuthService');
         }).catch((sendErr) => {
           logger.warn(`SMTP email dispatch background issue: ${(sendErr as Error).message}`, 'OtpAuthService');
         });
