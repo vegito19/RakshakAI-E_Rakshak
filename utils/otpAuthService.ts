@@ -137,10 +137,13 @@ export class OtpAuthService {
         // Dispatch email asynchronously so API responds instantly without cloud gateway timeouts
         emailDispatched = true;
         const fromHeader = `Rakshak CrimeOS Auth <${senderEmail.trim()}>`;
+        const plainText = `SURAKSHAK Cyber Crime Cell - Verification Code\n\nYour Security OTP PIN is: ${otp}\n\nThis verification code expires in 5 minutes.\nISO/IEC 27037 & Section 63 BSA 2023 Compliant Evidence Node\nSurat Police Commissionerate, Gujarat, India`;
+
         transporter.sendMail({
           from: fromHeader,
           to: email,
           subject: subjectMap[purpose],
+          text: plainText,
           html: htmlContent
         }).then((info) => {
           logger.info(`Official live email accepted by Gmail for ${email} (MessageID: ${info.messageId}, SMTP: ${info.response})`, 'OtpAuthService');
