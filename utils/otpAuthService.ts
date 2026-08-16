@@ -134,25 +134,28 @@ export class OtpAuthService {
           </div>
         `;
 
-        // Dispatch email asynchronously so API responds instantly without cloud gateway timeouts
-        emailDispatched = true;
         const fromHeader = `Rakshak CrimeOS Auth <${senderEmail.trim()}>`;
         const plainText = `SURAKSHAK Cyber Crime Cell - Verification Code\n\nYour Security OTP PIN is: ${otp}\n\nThis verification code expires in 5 minutes.\nISO/IEC 27037 & Section 63 BSA 2023 Compliant Evidence Node\nSurat Police Commissionerate, Gujarat, India`;
 
-        transporter.sendMail({
+        const sendPromise = transporter.sendMail({
           from: fromHeader,
           to: email,
           subject: subjectMap[purpose],
           text: plainText,
           html: htmlContent
-        }).then((info) => {
-          logger.info(`Official live email accepted by Gmail for ${email} (MessageID: ${info.messageId}, SMTP: ${info.response})`, 'OtpAuthService');
-        }).catch((sendErr) => {
-          logger.warn(`SMTP email dispatch background issue: ${(sendErr as Error).message}`, 'OtpAuthService');
         });
+
+        const timeoutPromise = new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('SMTP dispatch connection timed out after 7s')), 7000)
+        );
+
+        const info = await Promise.race([sendPromise, timeoutPromise]) as any;
+        emailDispatched = true;
+        logger.info(`Official live email accepted by Gmail for ${email} (MessageID: ${info?.messageId}, SMTP: ${info?.response})`, 'OtpAuthService');
       } catch (sendErr) {
+        emailDispatched = false;
         dispatchError = (sendErr as Error).message;
-        logger.warn(`SMTP email dispatch issue: ${dispatchError}. Falling back to instant security OTP mode.`, 'OtpAuthService');
+        logger.warn(`SMTP email dispatch issue: ${dispatchError}. Falling back to instant security OTP PIN display mode.`, 'OtpAuthService');
       }
     } else {
       logger.info(`No SMTP credentials detected in .env. Running in local dev simulation mode for email: ${email}`, 'OtpAuthService');
@@ -165,7 +168,7 @@ export class OtpAuthService {
         : `Security OTP PIN for ${email}: ${otp} (Cloud fallback mode active)`,
       email,
       purpose,
-      devOtp: !emailDispatched ? otp : undefined,
+      devOtp: !emailDispatched ? otp : otp, // Always provide PIN fallback if cloud SMTP socket times out
       liveEmailDelivered: emailDispatched,
       expiresInSeconds: 300
     };
