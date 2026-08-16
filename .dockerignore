@@ -1,0 +1,9 @@
+node_modules
+npm-debug.log
+dist
+.git
+.env
+scratch
+cloudflared.exe
+seized_evidence
+dashboard/.next
