@@ -90,7 +90,7 @@ export class RedditScraper {
       this.lastNavigationTime = Date.now();
 
       // Determine whether target is a subreddit or a global search keyword query
-      const cleanTarget = subreddit.trim();
+      const cleanTarget = subreddit.trim().replace(/^#/, '').trim();
       const isSubredditFormat = /^[a-zA-Z0-9_]+$/.test(cleanTarget) && ['surat', 'gujarat', 'india', 'news', 'delhi'].includes(cleanTarget.toLowerCase());
       
       let url = isSubredditFormat 
@@ -311,8 +311,8 @@ export class RedditScraper {
   private async scrapeViaRss(target: string, limit: number = 25): Promise<RawCrawledItem[]> {
     try {
       const axios = (await import('axios')).default;
-      const cleanTarget = target.trim();
-      const isSubredditFormat = /^[a-zA-Z0-9_]+$/.test(cleanTarget) && !cleanTarget.includes(' ');
+      const cleanTarget = target.trim().replace(/^#/, '').trim();
+      const isSubredditFormat = /^[a-zA-Z0-9_]+$/.test(cleanTarget) && ['surat', 'gujarat', 'india', 'news', 'delhi', 'cricket', 'sports'].includes(cleanTarget.toLowerCase());
       const rssUrl = isSubredditFormat 
         ? `https://www.reddit.com/r/${cleanTarget}/new.rss`
         : `https://www.reddit.com/search.rss?q=${encodeURIComponent(cleanTarget)}&sort=new`;

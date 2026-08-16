@@ -31,14 +31,19 @@ export class OtpAuthService {
         const isGmail = user.toLowerCase().includes('@gmail.com');
         if (isGmail) {
           return nodemailer.createTransport({
-            service: 'gmail',
-            auth: { user, pass }
+            host: process.env.SMTP_HOST || 'smtp.gmail.com',
+            port: parseInt(process.env.SMTP_PORT || '587', 10),
+            secure: process.env.SMTP_PORT === '465',
+            auth: { user, pass },
+            tls: {
+              rejectUnauthorized: false
+            }
           });
         }
         return nodemailer.createTransport({
           host: process.env.SMTP_HOST || 'smtp.gmail.com',
-          port: parseInt(process.env.SMTP_PORT || '465', 10),
-          secure: true,
+          port: parseInt(process.env.SMTP_PORT || '587', 10),
+          secure: process.env.SMTP_PORT === '465',
           auth: { user, pass },
           tls: {
             rejectUnauthorized: false
